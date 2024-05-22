@@ -15,7 +15,7 @@ const std = @import("std");
 const time = @import("zig-time");
 
 pub fn main() !void {
-    const time_0 = now().timestamp();
+    const time_0 = time.now().timestamp();
     
     std.debug.print("now time: {d}\n", .{time_0});
 }
