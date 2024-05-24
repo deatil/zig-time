@@ -170,23 +170,31 @@ pub const Time = struct {
         return self.ns;
     }
 
+    // compare from a and b
+
     pub fn isZero(self: Self) bool {
         return self.nanoTimestamp() == 0;
     }
+    
+    // returns true if time self is after time u.
+    pub fn after(self: Self, u: Self) bool {
+        const ts = self.sec();
+        const us = u.sec();
+        return ts > us or (ts == us and self.nsec() > u.nsec());
+    }
 
+    // returns true if time self is before u.
+    pub fn before(self: Self, u: Self) bool {
+        const ts = self.sec();
+        const us = u.sec();
+        return (ts < us) or (ts == us and self.nsec() < u.nsec());
+    }
+    
     pub fn equal(self: Self, other: Self) bool {
         return self.nanoTimestamp() == other.nanoTimestamp();
     }
 
     // for format time output
-
-    fn unixSec(self: Self) i64 {
-        return @divTrunc(@as(isize, @intCast(self.ns)), time.ns_per_s);
-    }
-
-    pub fn unix(self: Self) i64 {
-        return self.unixSec();
-    }
 
     fn nsec(self: Self) i32 {
         if (self.ns == 0) {
@@ -194,6 +202,18 @@ pub const Time = struct {
         }
         
         return @as(i32, @intCast((self.ns - (self.unixSec() * time.ns_per_s)) & nsec_mask));
+    }
+    
+    fn sec(self: Self) i64 {
+        return @divTrunc(@as(isize, @intCast(self.ns)), time.ns_per_s);
+    }
+
+    fn unixSec(self: Self) i64 {
+        return self.sec();
+    }
+    
+    pub fn unix(self: Self) i64 {
+        return self.unixSec();
     }
     
     fn abs(self: Self) u64 {
@@ -223,6 +243,11 @@ pub const Time = struct {
     pub fn day(self: Self) u9 {
         const d = self.date();
         return @as(u9, @intCast(d.day));
+    }
+
+    /// clock returns the hour, minute, and second within the day specified by t.
+    pub fn clock(self: Self) Clock {
+        return Clock.absClock(self.abs());
     }
 
     pub fn hour(self: Self) u5 {
@@ -315,6 +340,38 @@ pub const Time = struct {
         return ISOWeek{ .year = d.year, .week = week };
     }
 
+    //// seconds since epoch Oct 1, 1970 at 12:00 AM
+    pub fn epochSeconds(self: Self) epoch.EpochSeconds {
+        return epoch.EpochSeconds{
+            .secs = @as(u64, @intCast(self.sec())),
+        };
+    }
+    
+    // =========
+
+    pub fn add(self: Self, d: Duration) Self {
+        var cp = self;
+        cp.ns += @as(i128, @intCast(d.value));
+
+        return cp;
+    }
+
+    pub fn addDate(self: Self, years: isize, number_of_months: isize, number_of_days: isize) Self {
+        const d = self.date();
+        const c = self.clock();
+        const m = @as(isize, @intCast(@intFromEnum(d.month))) + number_of_months;
+        return fromDatetime(
+            d.year + years,
+            m,
+            d.day + number_of_days,
+            c.hour,
+            c.min,
+            c.sec,
+            @as(isize, @intCast(self.nsec())),
+            self.loc,
+        );
+    }
+
     // =========
     
     /// fmt is based on https://momentjs.com/docs/#/displaying/format/
@@ -354,8 +411,8 @@ pub const Time = struct {
                     .MM => try writer.print("{:0>2}", .{months + 1}),
                     .M => try writer.print("{}", .{months + 1}),
                     .Mo => try printOrdinal(writer, months + 1),
-                    .MMM => try printLongName(writer, months, &[_]string{ "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" }),
-                    .MMMM => try printLongName(writer, months, &[_]string{ "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December" }),
+                    .MMM => try printLongName(writer, months, &short_month_names),
+                    .MMMM => try printLongName(writer, months, &long_month_names),
 
                     .Q => try writer.print("{}", .{months / 3 + 1}),
                     .Qo => try printOrdinal(writer, months / 3 + 1),
@@ -371,7 +428,7 @@ pub const Time = struct {
                     .d => try writer.print("{}", .{@intFromEnum(self.weekday())}),
                     .do => try printOrdinal(writer, @as(u16, @intCast(@intFromEnum(self.weekday())))),
                     .dd => try writer.writeAll(@tagName(self.weekday())[0..2]),
-                    .ddd => try printLongName(writer, @as(u16, @intCast(@intFromEnum(self.weekday()))), &[_]string{ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" }),
+                    .ddd => try printLongName(writer, @as(u16, @intCast(@intFromEnum(self.weekday()))), &short_day_names),
                     .dddd => try writer.writeAll(@tagName(self.weekday())),
                     .e => try writer.print("{}", .{@intFromEnum(self.weekday())}),
                     .E => try writer.print("{}", .{@intFromEnum(self.weekday()) + 1}),
@@ -532,6 +589,56 @@ fn daysSinceeEpoch(year: isize) u64 {
     return d;
 }
 
+const long_day_names = [_][]const u8{
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+};
+
+const short_day_names = [_]string{
+    "Sun",
+    "Mon",
+    "Tue",
+    "Wed",
+    "Thu",
+    "Fri",
+    "Sat",
+};
+
+const short_month_names = [_]string{
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+};
+
+const long_month_names = [_]string{
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+};
+
 pub const Weekday = enum(usize) {
     Sunday,
     Monday,
@@ -544,20 +651,11 @@ pub const Weekday = enum(usize) {
     pub fn string(self: Weekday) []const u8 {
         const d = @intFromEnum(self);
         if (@intFromEnum(Weekday.Sunday) <= d and d <= @intFromEnum(Weekday.Saturday)) {
-            return weekdays[d];
+            return long_day_names[d];
         }
+        
         unreachable;
     }
-};
-
-const weekdays = [_]string{
-    "Sunday",
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
 };
 
 /// ISO 8601 year and week number
@@ -571,6 +669,245 @@ fn absWeekday(abs: u64) Weekday {
     const w = s / seconds_per_day;
     return @as(Weekday, @enumFromInt(@as(usize, @intCast(w))));
 }
+
+pub const Duration = struct {
+    value: i64,
+
+    pub const Nanosecond = init(1);
+    pub const Microsecond = init(1000 * Nanosecond.value);
+    pub const Millisecond = init(1000 * Microsecond.value);
+    pub const Second = init(1000 * Millisecond.value);
+    pub const Minute = init(60 * Second.value);
+    pub const Hour = init(60 * Minute.value);
+
+    const minDuration = init(-1 << 63);
+    const maxDuration = init((1 << 63) - 1);
+
+    const fracRes = struct {
+        nw: usize,
+        nv: u64,
+    };
+
+    // fmtFrac formats the fraction of v/10**prec (e.g., ".12345") into the
+    // tail of buf, omitting trailing zeros. It omits the decimal
+    // point too when the fraction is 0. It returns the index where the
+    // output bytes begin and the value v/10**prec.
+
+    pub fn init(v: i64) Duration {
+        return Duration{ .value = v };
+    }
+
+    fn fmtFrac(buf: []u8, value: u64, prec: usize) fracRes {
+        // Omit trailing zeros up to and including decimal point.
+        var w = buf.len;
+        var v = value;
+        var i: usize = 0;
+        var print: bool = false;
+        while (i < prec) : (i += 1) {
+            const digit = @mod(v, 10);
+            print = print or digit != 0;
+            if (print) {
+                w -= 1;
+                buf[w] = @as(u8, @intCast(digit)) + '0';
+            }
+            v /= 10;
+        }
+        if (print) {
+            w -= 1;
+            buf[w] = '.';
+        }
+        return fracRes{ .nw = w, .nv = v };
+    }
+
+    fn fmtInt(buf: []u8, value: u64) usize {
+        var w = buf.len;
+        var v = value;
+        if (v == 0) {
+            w -= 1;
+            buf[w] = '0';
+        } else {
+            while (v > 0) {
+                w -= 1;
+                buf[w] = @as(u8, @intCast(@mod(v, 10))) + '0';
+                v /= 10;
+            }
+        }
+        return w;
+    }
+
+    pub fn string(self: Duration) []const u8 {
+        var buf: [32]u8 = undefined;
+        var w = buf.len;
+        var u = @as(u64, @intCast(self.value));
+        const neg = self.value < 0;
+        if (neg) {
+            u = @as(u64, @intCast(-self.value));
+        }
+        if (u < @as(u64, @intCast(Second.value))) {
+            // Special case: if duration is smaller than a second,
+            // use smaller units, like 1.2ms
+            var prec: usize = 0;
+            w -= 1;
+            buf[w] = 's';
+            w -= 1;
+            if (u == 0) {
+                const s = "0s";
+                return s[0..];
+            } else if (u < @as(u64, @intCast(Microsecond.value))) {
+                // print nanoseconds
+                prec = 0;
+                buf[w] = 'n';
+            } else if (u < @as(u64, @intCast(Millisecond.value))) {
+                // print microseconds
+                prec = 3;
+                // U+00B5 'µ' micro sign == 0xC2 0xB5
+                w -= 1;
+                @memcpy(buf[w..], "µ");
+            } else {
+                prec = 6;
+                buf[w] = 'm';
+            }
+            const r = fmtFrac(buf[0..w], u, prec);
+            w = r.nw;
+            u = r.nv;
+            w = fmtInt(buf[0..w], u);
+        } else {
+            w -= 1;
+            buf[w] = 's';
+            const r = fmtFrac(buf[0..w], u, 9);
+            w = r.nw;
+            u = r.nv;
+            w = fmtInt(buf[0..w], @mod(u, 60));
+            u /= 60;
+            // u is now integer minutes
+            if (u > 0) {
+                w -= 1;
+                buf[w] = 'm';
+                w = fmtInt(buf[0..w], @mod(u, 60));
+                u /= 60;
+                // u is now integer hours
+                // Stop at hours because days can be different lengths.
+                if (u > 0) {
+                    w -= 1;
+                    buf[w] = 'h';
+                    w = fmtInt(buf[0..w], u);
+                }
+            }
+        }
+        
+        if (neg) {
+            w -= 1;
+            buf[w] = '-';
+        }
+
+        const ww = w;
+        return buf[ww..];
+    }
+
+    /// nanoseconds returns the duration as an integer nanosecond count.
+    pub fn nanoseconds(self: Duration) i64 {
+        return self.value;
+    }
+
+    // These methods return float64 because the dominant
+    // use case is for printing a floating point number like 1.5s, and
+    // a truncation to integer would make them not useful in those cases.
+    // Splitting the integer and fraction ourselves guarantees that
+    // converting the returned float64 to an integer rounds the same
+    // way that a pure integer conversion would have, even in cases
+    // where, say, float64(d.Nanoseconds())/1e9 would have rounded
+    // differently.
+
+    /// Seconds returns the duration as a floating point number of seconds.
+    pub fn seconds(self: Duration) f64 {
+        const sec = @divTrunc(self.value, Second.value);
+        const nsec = @mod(self.value, Second.value);
+        return @as(f64, @floatFromInt(sec)) + @as(f64, @floatFromInt(nsec)) / 1e9;
+    }
+
+    /// Minutes returns the duration as a floating point number of minutes.
+    pub fn minutes(self: Duration) f64 {
+        const min = @divTrunc(self.value, Minute.value);
+        const nsec = @mod(self.value, Minute.value);
+        return @as(f64, @floatFromInt(min)) + @as(f64, @floatFromInt(nsec)) / (60 * 1e9);
+    }
+
+    // Hours returns the duration as a floating point number of hours.
+    pub fn hours(self: Duration) f64 {
+        const hour = @divTrunc(self.value, Hour.value);
+        const nsec = @mod(self.value, Hour.value);
+        return @as(f64, @floatFromInt(hour)) + @as(f64, @floatFromInt(nsec)) / (60 * 60 * 1e9);
+    }
+
+    /// Truncate returns the result of rounding d toward zero to a multiple of m.
+    /// If m <= 0, Truncate returns d unchanged.
+    pub fn truncate(self: Duration, m: Duration) Duration {
+        if (m.value <= 0) {
+            return self;
+        }
+        return init(self.value - @mod(self.value, m.value));
+    }
+
+    // lessThanHalf reports whether x+x < y but avoids overflow,
+    // assuming x and y are both positive (Duration is signed).
+    fn lessThanHalf(self: Duration, m: Duration) bool {
+        const x = @as(u64, @intCast(self.value));
+        return x + x < @as(u64, @intCast(m.value));
+    }
+
+    // Round returns the result of rounding d to the nearest multiple of m.
+    // The rounding behavior for halfway values is to round away from zero.
+    // If the result exceeds the maximum (or minimum)
+    // value that can be stored in a Duration,
+    // Round returns the maximum (or minimum) duration.
+    // If m <= 0, Round returns d unchanged.
+    pub fn round(self: Duration, m: Duration) Duration {
+        if (m.value <= 0) {
+            return self;
+        }
+
+        var r = init(@mod(self.value, m.value));
+        if (self.value < 0) {
+            r.value = -r.value;
+            if (r.lessThanHalf(m)) {
+                return init(self.value + r.value);
+            }
+            
+            const d = self.value - m.value + r.value;
+            if (d < self.value) {
+                return init(d);
+            }
+            
+            return minDuration;
+        }
+
+        if (r.lessThanHalf(m)) {
+            return init(self.value - r.value);
+        }
+        
+        const d = self.value + m.value - r.value;
+        if (d > self.value) {
+            return init(d);
+        }
+        
+        return maxDuration;
+    }
+};
+
+pub const Clock = struct {
+    hour: isize,
+    min: isize,
+    sec: isize,
+
+    fn absClock(abs: u64) Clock {
+        var sec = @as(isize, @intCast(abs % seconds_per_day));
+        const hour = @divTrunc(sec, seconds_per_hour);
+        sec -= (hour * seconds_per_hour);
+        const min = @divTrunc(sec, seconds_per_minute);
+        sec -= (min * seconds_per_minute);
+        return Clock{ .hour = hour, .min = min, .sec = sec };
+    }
+};
 
 const normRes = struct {
     hi: isize,
@@ -860,6 +1197,13 @@ fn testHarness(comptime seed: i64, comptime expects: []const [2]string) void {
     }
 }
 
+fn expectFmt(instant: Time, comptime fmt: string, comptime expected: string) !void {
+    const alloc = std.testing.allocator;
+    const actual = try instant.formatAlloc(alloc, fmt);
+    defer alloc.free(actual);
+    std.testing.expectEqualStrings(expected, actual) catch return error.SkipZigTest;
+}
+
 comptime {
     testHarness(1691879007511, &.{
         .{ "YYYY-MM-DD HH:mm:ss", "2023-08-12 22:23:27" },
@@ -971,3 +1315,112 @@ comptime {
     testHarness(1144509852789, &.{.{ "YYYYMM", "200604" }});
  
 }
+
+test "after and before" {
+    const ii_0: i128 = 1691879007511594906;
+    const ii_1: i128 = 1691879017511594906;
+
+    const time_0 = Time.fromNanoTimestamp(ii_0);
+    const time_1 = Time.fromNanoTimestamp(ii_1);
+
+    try testing.expect(time_1.after(time_0));
+    try testing.expect(time_0.before(time_1));
+    
+    try testing.expect(!time_0.after(time_1));
+    try testing.expect(!time_1.before(time_0));
+}
+
+test "Clock show" {
+    const ii_0: i128 = 1691879007511594906;
+
+    const time_0 = Time.fromNanoTimestamp(ii_0).setLoc(Location.fixed(8));
+    const clock_0 = time_0.clock();
+    
+    try testing.expectFmt("6", "{d}", .{clock_0.hour});
+    try testing.expectFmt("23", "{d}", .{clock_0.min});
+    try testing.expectFmt("27", "{d}", .{clock_0.sec});
+}
+
+test "add" {
+    const ii_0: i128 = 1691879007511594906;
+    var time_0 = Time.fromNanoTimestamp(ii_0).setLoc(Location.fixed(8));
+
+    try expectFmt(time_0, "YYYY-MM-DD hh:mm:ss A z", "2023-08-13 06:23:27 AM UTC");
+    
+    time_0 = time_0.add(Duration.init(5 * Duration.Second.value));
+    try expectFmt(time_0, "YYYY-MM-DD hh:mm:ss A z", "2023-08-13 06:23:32 AM UTC");
+}
+
+test "addDate" {
+    const ii_0: i128 = 1691879007511594906;
+    var time_0 = Time.fromNanoTimestamp(ii_0).setLoc(Location.fixed(8));
+
+    try expectFmt(time_0, "YYYY-MM-DD hh:mm:ss A z", "2023-08-13 06:23:27 AM UTC");
+    
+    time_0 = time_0.addDate(1, 2, 5);
+    try expectFmt(time_0, "YYYY-MM-DD hh:mm:ss A z", "2024-10-18 06:23:27 AM UTC");
+}
+
+test "Duration" {
+    const dur = Duration.init(2 * Duration.Minute.value + 1 * Duration.Hour.value + 5 * Duration.Second.value);
+
+    try testing.expectFmt("1h2m5s", "{s}", .{dur.string()});
+    try testing.expectFmt("3725000000000", "{d}", .{dur.nanoseconds()});
+    try testing.expectFmt("3725", "{d}", .{dur.seconds()});
+    try testing.expectFmt("62.083333333333336", "{d}", .{dur.minutes()});
+    try testing.expectFmt("1.0347222222222223", "{d}", .{dur.hours()});
+
+    const dur_2 = Duration.init(1 * Duration.Minute.value + 5 * Duration.Second.value);
+    const dur_2_truncate = dur.truncate(dur_2);
+    try testing.expectFmt("3705000000000", "{d}", .{dur_2_truncate.nanoseconds()});
+
+    const dur_3 = Duration.init(5 * Duration.Minute.value + 5 * Duration.Second.value);
+    const dur_3_round = dur.round(dur_3);
+    try testing.expectFmt("3660000000000", "{d}", .{dur_3_round.nanoseconds()});
+
+}
+
+test "epochSeconds" {
+    const ii_0: i128 = 1691879007511594906;
+    var time_0 = Time.fromNanoTimestamp(ii_0).setLoc(Location.fixed(8));
+    
+    const es = time_0.epochSeconds();
+    const epochDay = es.getEpochDay();
+    const daySeconds = es.getDaySeconds();
+    
+    try testing.expectFmt("80607", "{d}", .{daySeconds.secs});
+    try testing.expectFmt("22", "{d}", .{daySeconds.getHoursIntoDay()});
+    try testing.expectFmt("23", "{d}", .{daySeconds.getMinutesIntoHour()});
+    try testing.expectFmt("27", "{d}", .{daySeconds.getSecondsIntoMinute()});
+
+    try testing.expectFmt("19581", "{d}", .{epochDay.day});
+
+    const yearAndDay = epochDay.calculateYearDay();
+
+    try testing.expectFmt("2023", "{d}", .{yearAndDay.year});
+    try testing.expectFmt("223", "{d}", .{yearAndDay.day});
+
+    const monthAndDay = yearAndDay.calculateMonthDay();
+
+    try testing.expectFmt("8", "{d}", .{monthAndDay.month.numeric()});
+    try testing.expectFmt("11", "{d}", .{monthAndDay.day_index});
+}
+
+test "Weekday show name string" {
+    try testing.expectFmt("Sunday", "{s}", .{Weekday.Sunday.string()});
+    try testing.expectFmt("Monday", "{s}", .{Weekday.Monday.string()});
+    try testing.expectFmt("Tuesday", "{s}", .{Weekday.Tuesday.string()});
+    try testing.expectFmt("Wednesday", "{s}", .{Weekday.Wednesday.string()});
+    try testing.expectFmt("Thursday", "{s}", .{Weekday.Thursday.string()});
+    try testing.expectFmt("Friday", "{s}", .{Weekday.Friday.string()});
+    try testing.expectFmt("Saturday", "{s}", .{Weekday.Saturday.string()});
+
+}
+
+test "add Years" {
+    var t = Time.fromTimestamp(1330502962);
+    try expectFmt(t, "YYYY-MM-DD hh:mm:ss A z", "2012-02-29 08:09:22 AM UTC");
+    t = t.addDate(1, 0, 0);
+    try expectFmt(t, "YYYY-MM-DD hh:mm:ss A z", "2013-03-01 08:09:22 AM UTC");
+}
+
