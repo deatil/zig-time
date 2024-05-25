@@ -194,6 +194,18 @@ pub const Time = struct {
         return self.nanoTimestamp() == other.nanoTimestamp();
     }
 
+    // compare compares the time instant t with u. If t is before u, it returns -1;
+    // if t is after u, it returns +1; if they're the same, it returns 0.
+    pub fn compare(self: Self, other: Self) isize {
+        if (self.ns < other.ns) {
+            return -1;
+        } else if (self.ns > other.ns) {
+            return 1;
+        } else {
+            return 0;
+        }
+    }
+    
     // for format time output
 
     fn nsec(self: Self) i32 {
@@ -269,6 +281,16 @@ pub const Time = struct {
     /// in the range [0, 999999999].
     pub fn nanosecond(self: Self) i32 {
         return self.nsec();
+    }
+
+    // microseconds returns the duration as an integer microsecond count.
+    pub fn microseconds(self: Self) i32 {
+        return @divTrunc(self.nsec(), time.ns_per_us);
+    }
+
+    // milliseconds returns the duration as an integer millisecond count.
+    pub fn milliseconds(self: Self) i32 {
+        return @divTrunc(self.nsec(), time.ns_per_ms);
     }
     
     pub fn yearDay(self: Self) u16 {
@@ -355,6 +377,18 @@ pub const Time = struct {
 
         return cp;
     }
+
+    pub fn sub(self: Self, u: Self) Duration {
+        const d = Duration.init(@as(i64, @intCast(self.ns - u.ns)));
+
+        if (u.add(d).equal(self)) {
+            return d;
+        } else if (self.before(u)) {
+            return Duration.minDuration;
+        } else {
+            return Duration.maxDuration;
+        }
+    } 
 
     pub fn addDate(self: Self, years: isize, number_of_months: isize, number_of_days: isize) Self {
         const d = self.date();
@@ -738,11 +772,14 @@ pub const Duration = struct {
     pub fn string(self: Duration) []const u8 {
         var buf: [32]u8 = undefined;
         var w = buf.len;
-        var u = @as(u64, @intCast(self.value));
+        var u: u64 = undefined;
         const neg = self.value < 0;
         if (neg) {
             u = @as(u64, @intCast(-self.value));
+        } else {
+            u = @as(u64, @intCast(self.value));
         }
+        
         if (u < @as(u64, @intCast(Second.value))) {
             // Special case: if duration is smaller than a second,
             // use smaller units, like 1.2ms
@@ -809,6 +846,16 @@ pub const Duration = struct {
         return self.value;
     }
 
+    // microseconds returns the duration as an integer microsecond count.
+    pub fn microseconds(self: Duration) i64 {
+        return @divTrunc(self.value, time.ns_per_us);
+    }
+
+    // milliseconds returns the duration as an integer millisecond count.
+    pub fn milliseconds(self: Duration) i64 {
+        return @divTrunc(self.value, time.ns_per_ms);
+    }
+    
     // These methods return float64 because the dominant
     // use case is for printing a floating point number like 1.5s, and
     // a truncation to integer would make them not useful in those cases.
@@ -891,6 +938,16 @@ pub const Duration = struct {
         }
         
         return maxDuration;
+    }
+
+    pub fn abs(self: Duration) Duration {
+        if (self.value >= 0) {
+            return self;
+        } else if (self.value == minDuration.value) {
+            return maxDuration;
+        } else {
+            return Duration.init(-self.value);
+        }
     }
 };
 
@@ -1138,6 +1195,8 @@ test "format show" {
     try testing.expectFmt("23", "{d}", .{time_0.minute()});
     try testing.expectFmt("27", "{d}", .{time_0.second()});
     try testing.expectFmt("511594906", "{d}", .{time_0.nanosecond()});
+    try testing.expectFmt("511594", "{d}", .{time_0.microseconds()});
+    try testing.expectFmt("511", "{d}", .{time_0.milliseconds()});
     try testing.expectFmt("225", "{d}", .{time_0.yearDay()});
 }
 
@@ -1366,6 +1425,8 @@ test "Duration" {
 
     try testing.expectFmt("1h2m5s", "{s}", .{dur.string()});
     try testing.expectFmt("3725000000000", "{d}", .{dur.nanoseconds()});
+    try testing.expectFmt("3725000000", "{d}", .{dur.microseconds()});
+    try testing.expectFmt("3725000", "{d}", .{dur.milliseconds()});
     try testing.expectFmt("3725", "{d}", .{dur.seconds()});
     try testing.expectFmt("62.083333333333336", "{d}", .{dur.minutes()});
     try testing.expectFmt("1.0347222222222223", "{d}", .{dur.hours()});
@@ -1377,6 +1438,18 @@ test "Duration" {
     const dur_3 = Duration.init(5 * Duration.Minute.value + 5 * Duration.Second.value);
     const dur_3_round = dur.round(dur_3);
     try testing.expectFmt("3660000000000", "{d}", .{dur_3_round.nanoseconds()});
+
+    const dur_5_1 = Duration.init(-2 * Duration.Minute.value);
+    const dur_5_1_abs = dur_5_1.abs();
+    try testing.expectFmt("120000000000", "{d}", .{dur_5_1_abs.nanoseconds()});
+
+    const dur_5_2 = Duration.init(3 * Duration.Minute.value);
+    const dur_5_2_abs = dur_5_2.abs();
+    try testing.expectFmt("180000000000", "{d}", .{dur_5_2_abs.nanoseconds()});
+
+    const dur_5_3 = Duration.minDuration;
+    const dur_5_3_abs = dur_5_3.abs();
+    try testing.expectFmt("9223372036854775807", "{d}", .{dur_5_3_abs.nanoseconds()});
 
 }
 
@@ -1422,5 +1495,30 @@ test "add Years" {
     try expectFmt(t, "YYYY-MM-DD hh:mm:ss A z", "2012-02-29 08:09:22 AM UTC");
     t = t.addDate(1, 0, 0);
     try expectFmt(t, "YYYY-MM-DD hh:mm:ss A z", "2013-03-01 08:09:22 AM UTC");
+}
+
+test "compare" {
+    const ii_0: i128 = 1691879007511594906;
+    const time_0 = Time.fromNanoTimestamp(ii_0).setLoc(Location.fixed(8));
+
+    const ii_1: i128 = 1691879007517594906;
+    const time_1 = Time.fromNanoTimestamp(ii_1).setLoc(Location.fixed(8));
+
+    try testing.expectFmt("-1", "{d}", .{time_0.compare(time_1)});
+    try testing.expectFmt("1", "{d}", .{time_1.compare(time_0)});
+    try testing.expectFmt("0", "{d}", .{time_1.compare(time_1)});
+    
+}
+
+test "time sub" {
+    const time_0 = Time.fromDatetime(2023, 8, 13, 6, 23, 27, 12, Location.fixed(8));
+    const time_1 = Time.fromDatetime(2023, 8, 13, 6, 25, 27, 12, Location.fixed(8));
+
+    const time_sub_1 = time_0.sub(time_1);
+    try testing.expectFmt("-2m0s", "{s}", .{time_sub_1.string()});
+
+    const time_sub_2 = time_1.sub(time_0);
+    try testing.expectFmt("2m0s", "{s}", .{time_sub_2.string()});
+
 }
 
