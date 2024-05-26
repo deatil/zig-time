@@ -7,21 +7,56 @@ const time = std.time;
 const epoch = time.epoch;
 
 pub const Location = struct {
+    const Self = @This();
+    
     offset: i32,
+    tzname: []const u8,
 
     pub fn utc() Location {
         return Location{
             .offset = 0,
+            .tzname = "UTC",
         };
     }
 
     // offset is hour
     pub fn fixed(offset: i32) Location {
         const new_offset = offset * time.s_per_hour;
-        
-        return Location{
+
+        return .{
             .offset = new_offset,
+            .tzname = "",
         };
+    }
+
+    pub fn name(self: Self) []const u8 {
+        if (self.tzname.len > 0) {
+            return self.tzname;
+        }
+
+        return self.fixedName(@divTrunc(self.offset, time.s_per_hour));
+    }
+
+    pub fn fixedName(self: Self, offset: i32) []const u8 {
+        _ = self;
+        
+        var buf: [32]u8 = undefined;
+
+        var w = buf.len;
+        const u = @as(u64, @intCast(@abs(offset)));
+        
+        w = fmtInt(buf[0..w], u);
+        
+        w -= 1;
+        if (offset < 0) {
+            buf[w] = '-';
+        } else {
+            buf[w] = '+';
+        }
+
+        const oo = buf[w..];
+
+        return oo[0..];
     }
 };
 
@@ -150,6 +185,10 @@ pub const Time = struct {
         cp.ns = self.ns;
         cp.loc = loc;
         return cp;
+    }
+
+    pub fn location(self: Self) Location {
+        return self.loc;
     }
 
     // return timestamp
@@ -704,6 +743,49 @@ fn absWeekday(abs: u64) Weekday {
     return @as(Weekday, @enumFromInt(@as(usize, @intCast(w))));
 }
 
+const fracRes = struct {
+    nw: usize,
+    nv: u64,
+};
+
+fn fmtFrac(buf: []u8, value: u64, prec: usize) fracRes {
+    // Omit trailing zeros up to and including decimal point.
+    var w = buf.len;
+    var v = value;
+    var i: usize = 0;
+    var print: bool = false;
+    while (i < prec) : (i += 1) {
+        const digit = @mod(v, 10);
+        print = print or digit != 0;
+        if (print) {
+            w -= 1;
+            buf[w] = @as(u8, @intCast(digit)) + '0';
+        }
+        v /= 10;
+    }
+    if (print) {
+        w -= 1;
+        buf[w] = '.';
+    }
+    return fracRes{ .nw = w, .nv = v };
+}
+
+fn fmtInt(buf: []u8, value: u64) usize {
+    var w = buf.len;
+    var v = value;
+    if (v == 0) {
+        w -= 1;
+        buf[w] = '0';
+    } else {
+        while (v > 0) {
+            w -= 1;
+            buf[w] = @as(u8, @intCast(@mod(v, 10))) + '0';
+            v /= 10;
+        }
+    }
+    return w;
+}
+
 pub const Duration = struct {
     value: i64,
 
@@ -717,11 +799,6 @@ pub const Duration = struct {
     const minDuration = init(-1 << 63);
     const maxDuration = init((1 << 63) - 1);
 
-    const fracRes = struct {
-        nw: usize,
-        nv: u64,
-    };
-
     // fmtFrac formats the fraction of v/10**prec (e.g., ".12345") into the
     // tail of buf, omitting trailing zeros. It omits the decimal
     // point too when the fraction is 0. It returns the index where the
@@ -731,48 +808,11 @@ pub const Duration = struct {
         return Duration{ .value = v };
     }
 
-    fn fmtFrac(buf: []u8, value: u64, prec: usize) fracRes {
-        // Omit trailing zeros up to and including decimal point.
-        var w = buf.len;
-        var v = value;
-        var i: usize = 0;
-        var print: bool = false;
-        while (i < prec) : (i += 1) {
-            const digit = @mod(v, 10);
-            print = print or digit != 0;
-            if (print) {
-                w -= 1;
-                buf[w] = @as(u8, @intCast(digit)) + '0';
-            }
-            v /= 10;
-        }
-        if (print) {
-            w -= 1;
-            buf[w] = '.';
-        }
-        return fracRes{ .nw = w, .nv = v };
-    }
-
-    fn fmtInt(buf: []u8, value: u64) usize {
-        var w = buf.len;
-        var v = value;
-        if (v == 0) {
-            w -= 1;
-            buf[w] = '0';
-        } else {
-            while (v > 0) {
-                w -= 1;
-                buf[w] = @as(u8, @intCast(@mod(v, 10))) + '0';
-                v /= 10;
-            }
-        }
-        return w;
-    }
-
     pub fn string(self: Duration) []const u8 {
         var buf: [32]u8 = undefined;
         var w = buf.len;
         var u: u64 = undefined;
+        
         const neg = self.value < 0;
         if (neg) {
             u = @as(u64, @intCast(-self.value));
@@ -1132,6 +1172,18 @@ pub fn now() Time {
     return Time.fromNanoTimestamp(ts);
 }
 
+// Since returns the time elapsed since t.
+// It is shorthand for time.now().sub(t).
+pub fn since(t: Time) Duration {
+	return now().sub(t);
+}
+
+// Until returns the duration until t.
+// It is shorthand for t.sub(time.now()).
+pub fn until(t: Time) Duration {
+	return t.sub(now());
+}
+
 test "now" {
     const margin = time.ns_per_ms * 50;
 
@@ -1198,6 +1250,8 @@ test "format show" {
     try testing.expectFmt("511594", "{d}", .{time_0.microseconds()});
     try testing.expectFmt("511", "{d}", .{time_0.milliseconds()});
     try testing.expectFmt("225", "{d}", .{time_0.yearDay()});
+
+    try testing.expectFmt("+8", "{s}", .{time_0.location().name()});
 }
 
 test "from time" {
@@ -1522,3 +1576,24 @@ test "time sub" {
 
 }
 
+test "time until and since" {
+    const time_1 = Time.fromDatetime(2023, 8, 13, 6, 25, 27, 12, Location.fixed(8));
+
+    const time_since = until(time_1);
+    try testing.expect(time_since.nanoseconds() < 0);
+
+}
+
+test "Location fixed name" {
+    const loc_8 = Location.fixed(8);
+    const loc_fu8 = Location.fixed(-8);
+
+    try testing.expectFmt("+8", "{s}", .{loc_8.name()});
+    try testing.expectFmt("-8", "{s}", .{loc_fu8.name()});
+
+    const loc_122 = Location.fixed(122);
+    const loc_fu122 = Location.fixed(-122);
+    try testing.expectFmt("+122", "{s}", .{loc_122.name()});
+    try testing.expectFmt("-122", "{s}", .{loc_fu122.name()});
+    
+}
