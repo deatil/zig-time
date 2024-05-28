@@ -572,56 +572,56 @@ pub const Time = struct {
         try self.format(fmt, .{}, list.writer());
         return list.toOwnedSlice();
     }
+};
 
-    const FormatSeq = enum {
-        M, // 1 2 ... 11 12
-        Mo, // 1st 2nd ... 11th 12th
-        MM, // 01 02 ... 11 12
-        MMM, // Jan Feb ... Nov Dec
-        MMMM, // January February ... November December
-        Q, // 1 2 3 4
-        Qo, // 1st 2nd 3rd 4th
-        D, // 1 2 ... 30 31
-        Do, // 1st 2nd ... 30th 31st
-        DD, // 01 02 ... 30 31
-        DDD, // 1 2 ... 364 365
-        DDDo, // 1st 2nd ... 364th 365th
-        DDDD, // 001 002 ... 364 365
-        d, // 0 1 ... 5 6
-        do, // 0th 1st ... 5th 6th
-        dd, // Su Mo ... Fr Sa
-        ddd, // Sun Mon ... Fri Sat
-        dddd, // Sunday Monday ... Friday Saturday
-        e, // 0 1 ... 5 6 (locale)
-        E, // 1 2 ... 6 7 (ISO)
-        w, // 1 2 ... 52 53
-        wo, // 1st 2nd ... 52nd 53rd
-        ww, // 01 02 ... 52 53
-        Y, // 11970 11971 ... 19999 20000 20001 (Holocene calendar)
-        YY, // 70 71 ... 29 30
-        YYY, // 1 2 ... 1970 1971 ... 2029 2030
-        YYYY, // 0001 0002 ... 1970 1971 ... 2029 2030
-        A, // AM PM
-        a, // am pm
-        H, // 0 1 ... 22 23
-        HH, // 00 01 ... 22 23
-        h, // 1 2 ... 11 12
-        hh, // 01 02 ... 11 12
-        k, // 1 2 ... 23 24
-        kk, // 01 02 ... 23 24
-        m, // 0 1 ... 58 59
-        mm, // 00 01 ... 58 59
-        s, // 0 1 ... 58 59
-        ss, // 00 01 ... 58 59
-        S, // 0 1 ... 8 9 (second fraction)
-        SS, // 00 01 ... 98 99
-        SSS, // 000 001 ... 998 999
-        z, // EST CST ... MST PST
-        Z, // -07:00 -06:00 ... +06:00 +07:00
-        ZZ, // -0700 -0600 ... +0600 +0700
-        x, // unix milli
-        X, // unix
-    };
+const FormatSeq = enum {
+    M, // 1 2 ... 11 12
+    Mo, // 1st 2nd ... 11th 12th
+    MM, // 01 02 ... 11 12
+    MMM, // Jan Feb ... Nov Dec
+    MMMM, // January February ... November December
+    Q, // 1 2 3 4
+    Qo, // 1st 2nd 3rd 4th
+    D, // 1 2 ... 30 31
+    Do, // 1st 2nd ... 30th 31st
+    DD, // 01 02 ... 30 31
+    DDD, // 1 2 ... 364 365
+    DDDo, // 1st 2nd ... 364th 365th
+    DDDD, // 001 002 ... 364 365
+    d, // 0 1 ... 5 6
+    do, // 0th 1st ... 5th 6th
+    dd, // Su Mo ... Fr Sa
+    ddd, // Sun Mon ... Fri Sat
+    dddd, // Sunday Monday ... Friday Saturday
+    e, // 0 1 ... 5 6 (locale)
+    E, // 1 2 ... 6 7 (ISO)
+    w, // 1 2 ... 52 53
+    wo, // 1st 2nd ... 52nd 53rd
+    ww, // 01 02 ... 52 53
+    Y, // 11970 11971 ... 19999 20000 20001 (Holocene calendar)
+    YY, // 70 71 ... 29 30
+    YYY, // 1 2 ... 1970 1971 ... 2029 2030
+    YYYY, // 0001 0002 ... 1970 1971 ... 2029 2030
+    A, // AM PM
+    a, // am pm
+    H, // 0 1 ... 22 23
+    HH, // 00 01 ... 22 23
+    h, // 1 2 ... 11 12
+    hh, // 01 02 ... 11 12
+    k, // 1 2 ... 23 24
+    kk, // 01 02 ... 23 24
+    m, // 0 1 ... 58 59
+    mm, // 00 01 ... 58 59
+    s, // 0 1 ... 58 59
+    ss, // 00 01 ... 58 59
+    S, // 0 1 ... 8 9 (second fraction)
+    SS, // 00 01 ... 98 99
+    SSS, // 000 001 ... 998 999
+    z, // EST CST ... MST PST
+    Z, // -07:00 -06:00 ... +06:00 +07:00
+    ZZ, // -0700 -0600 ... +0600 +0700
+    x, // unix milli
+    X, // unix
 };
 
 pub const format = struct {
@@ -1184,6 +1184,128 @@ pub fn until(t: Time) Duration {
 	return t.sub(now());
 }
 
+fn isDigit(s: []const u8, i: usize) bool {
+    if (s.len <= i) {
+        return false;
+    }
+    
+    const c = s[i];
+    return '0' <= c and c <= '9';
+}
+
+// startsWithLowerCase reports whether the string has a lower-case letter at the beginning.
+// Its purpose is to prevent matching strings like "Month" when looking for "Mon".
+fn startsWithLowerCase(str: []const u8) bool {
+    if (str.len == 0) {
+        return false;
+    }
+    
+    const c = str[0];
+    return 'a' <= c and c <= 'z';
+}
+
+// match reports whether s1 and s2 match ignoring case.
+// It is assumed s1 and s2 are the same length.
+
+fn match(s1: []const u8, s2: []const u8) bool {
+    if (s1.len != s2.len) {
+        return false;
+    }
+    var i: usize = 0;
+    while (i < s1.len) : (i += 1) {
+        var c1 = s1[i];
+        var c2 = s2[i];
+        if (c1 != c2) {
+            c1 |= ('a' - 'A');
+            c2 |= ('a' - 'A');
+            if (c1 != c2 or c1 < 'a' or c1 > 'z') {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+fn lookup(tab: []const []const u8, val: []const u8) !usize {
+    for (tab, 0..) |v, i| {
+        if (val.len >= v.len and match(val[0..v.len], v)) {
+            return i;
+        }
+    }
+    
+    return error.BadValue;
+}
+
+const Number = struct {
+    value: isize,
+    string: []const u8,
+};
+
+// getnum parses s[0:1] or s[0:2] (fixed forces s[0:2])
+// as a decimal integer and returns the integer and the
+// remainder of the string.
+fn getNum(s: []const u8, fixed: bool) !Number {
+    if (!isDigit(s, 0)) {
+        return error.BadData;
+    }
+    
+    if (!isDigit(s, 1)) {
+        if (fixed) {
+            return error.BadData;
+        }
+        return Number{
+            .value = @as(isize, @intCast(s[0])) - '0',
+            .string = s[1..],
+        };
+    }
+    
+    const n = (@as(isize, @intCast(s[0])) - '0') * 10 + (@as(isize, @intCast(s[1])) - '0');
+    return Number{
+        .value = n,
+        .string = s[2..],
+    };
+}
+
+// getnum3 parses s[0:1], s[0:2], or s[0:3] (fixed forces s[0:3])
+// as a decimal integer and returns the integer and the remainder
+// of the string.
+fn getNum3(s: []const u8, fixed: bool) !Number {
+    var n: isize = 0;
+    var i: usize = 0;
+    while (i < 3 and isDigit(s, i)) : (i += 1) {
+        n = n * 10 + @as(isize, @intCast(s[i] - '0'));
+    }
+    
+    if (i == 0 or (fixed and i != 3)) {
+        return error.BadData;
+    }
+    
+    return Number{
+        .value = n,
+        .string = s[i..],
+    };
+}
+
+fn parseNanoseconds(value: []const u8, nbytes: usize) !isize {
+    if (value[0] != '.') {
+        return error.BadData;
+    }
+    
+    var ns = try std.fmt.parseInt(isize, value[1..nbytes], 10);
+    const nf = @as(f64, @floatFromInt(ns));
+    if (nf < 0 or 1e9 <= nf) {
+        return error.BadFractionalRange;
+    }
+    
+    const scale_digits = 10 - nbytes;
+    var i: usize = 0;
+    while (i < scale_digits) : (i += 1) {
+        ns *= 10;
+    }
+    
+    return ns;
+}
+
 test "now" {
     const margin = time.ns_per_ms * 50;
 
@@ -1597,3 +1719,94 @@ test "Location fixed name" {
     try testing.expectFmt("-122", "{s}", .{loc_fu122.name()});
     
 }
+
+test "isDigit" {
+    const data = "1ufiy8ki9k";
+    
+    try testing.expect(isDigit(data, 0));
+    try testing.expect(!isDigit(data, 2));
+    try testing.expect(isDigit(data, 5));
+}
+
+test "match" {
+    const data_1 = "1ufiy8ki9k";
+    const data_2 = "1ufiy8ki9k123";
+    const data_3 = "1ufiy8ki93";
+    const data_4 = "drtgyh";
+    const data_5 = "tyujik";
+    
+    try testing.expect(!match(data_1, data_2));
+    try testing.expect(!match(data_1, data_3));
+    try testing.expect(!match(data_4, data_5));
+    
+}
+
+test "lookup" {
+    const data_1 = [_][]const u8{
+        "drtgyh12356",
+        "drtgyh123",
+        "drtgyy",
+    };
+
+    const val = "drtgyh1237";
+
+    const idx_1 = try lookup(data_1[0..], val);
+    try testing.expectFmt("1", "{d}", .{idx_1});
+    
+}
+
+test "getNum" {
+    const val_1 = "35hy";
+    const val_2 = "3r78j";
+
+    const num_1 = try getNum(val_1, true);
+    try testing.expectFmt("35", "{d}", .{num_1.value});
+    try testing.expectFmt("hy", "{s}", .{num_1.string});
+    
+    const num_2 = try getNum(val_2, false);
+    try testing.expectFmt("3", "{d}", .{num_2.value});
+    try testing.expectFmt("r78j", "{s}", .{num_2.string});
+}
+
+test "getNum3" {
+    const val_1 = "35hy";
+    const val_2 = "3r78j";
+    const val_3 = "3895kj";
+
+    const num_1 = try getNum3(val_1, false);
+    try testing.expectFmt("35", "{d}", .{num_1.value});
+    try testing.expectFmt("hy", "{s}", .{num_1.string});
+    
+    const num_2 = try getNum3(val_2, false);
+    try testing.expectFmt("3", "{d}", .{num_2.value});
+    try testing.expectFmt("r78j", "{s}", .{num_2.string});
+    
+    const num_3 = try getNum3(val_3, true);
+    try testing.expectFmt("389", "{d}", .{num_3.value});
+    try testing.expectFmt("5kj", "{s}", .{num_3.string});
+    
+}
+
+test "parseNanoseconds" {
+    const val_1 = ".123456789";
+
+    const num_1 = try parseNanoseconds(val_1, 4);
+    try testing.expectFmt("123000000", "{d}", .{num_1});
+
+    const num_2 = try parseNanoseconds(val_1, 7);
+    try testing.expectFmt("123456000", "{d}", .{num_2});
+
+    const num_3 = try parseNanoseconds(val_1, 10);
+    try testing.expectFmt("123456789", "{d}", .{num_3});
+}
+
+test "startsWithLowerCase" {
+    const val_1 = "rtf56y";
+    try testing.expect(startsWithLowerCase(val_1));
+    
+    const val_2 = "Ytf56y";
+    try testing.expect(!startsWithLowerCase(val_2));
+   
+}
+
+
