@@ -3,6 +3,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const string = []const u8;
+const mem = std.mem;
 const time = std.time;
 const epoch = time.epoch;
 
@@ -10,34 +11,39 @@ pub const Location = struct {
     const Self = @This();
     
     offset: i32,
-    tzname: []const u8,
+    name: []const u8,
+
+    pub fn init(o: i32, n: []const u8) Location {
+        return .{
+            .offset = o,
+            .name = n,
+        };
+    }
 
     pub fn utc() Location {
-        return Location{
-            .offset = 0,
-            .tzname = "UTC",
-        };
+        return init(0, "UTC");
     }
 
     // offset is hour
     pub fn fixed(offset: i32) Location {
         const new_offset = offset * time.s_per_hour;
 
-        return .{
-            .offset = new_offset,
-            .tzname = "",
-        };
+        return init(new_offset, "");
     }
 
-    pub fn name(self: Self) []const u8 {
-        if (self.tzname.len > 0) {
-            return self.tzname;
+    pub fn string(self: Self) []const u8 {
+        if (self.name.len > 0) {
+            return self.name;
         }
 
         return self.fixedName(@divTrunc(self.offset, time.s_per_hour));
     }
 
-    pub fn fixedName(self: Self, offset: i32) []const u8 {
+    pub fn offsetString(self: Self) []const u8 {
+        return self.fixedName(@divTrunc(self.offset, time.s_per_hour));
+    }
+    
+    fn fixedName(self: Self, offset: i32) []const u8 {
         _ = self;
         
         var buf: [32]u8 = undefined;
@@ -65,44 +71,39 @@ pub const Time = struct {
     
     ns: i128,
     loc: Location,
-    
-    pub fn fromNanoTimestamp(t: i128) Time {
-        const loc = Location.utc();
-        
-        return Time{
-            .ns = t,
+
+    pub fn init(ns: i128, loc: Location) Time {
+        return .{
+            .ns = ns,
             .loc = loc,
         };
+    }
+    
+    pub fn fromNanoTimestamp(ns: i128) Time {
+        const loc = Location.utc();
+        
+        return init(ns, loc);
     }
     
     pub fn fromMicroTimestamp(t: i64) Time {
         const loc = Location.utc();
-        const tt = @as(i128, @intCast(t * time.ns_per_us));
+        const ns = @as(i128, @intCast(t * time.ns_per_us));
         
-        return Time{
-            .ns = tt,
-            .loc = loc,
-        };
+        return init(ns, loc);
     }
     
     pub fn fromMilliTimestamp(t: i64) Time {
         const loc = Location.utc();
-        const tt = @as(i128, @intCast(t * time.ns_per_ms));
+        const ns = @as(i128, @intCast(t * time.ns_per_ms));
         
-        return Time{
-            .ns = tt,
-            .loc = loc,
-        };
+        return init(ns, loc);
     }
     
     pub fn fromTimestamp(t: i64) Time {
         const loc = Location.utc();
-        const tt = @as(i128, @intCast(t * time.ns_per_s));
+        const ns = @as(i128, @intCast(t * time.ns_per_s));
         
-        return Time{
-            .ns = tt,
-            .loc = loc,
-        };
+        return init(ns, loc);
     }
 
     pub fn fromDate(years: isize, months: isize, days: isize, loc: Location) Time {
@@ -177,6 +178,11 @@ pub const Time = struct {
             .ns = tt,
             .loc = loc,
         };
+    }
+
+    pub fn now() Time {
+        const ts = time.nanoTimestamp();
+        return Time.fromNanoTimestamp(ts);
     }
     
     pub fn setLoc(self: Self, loc: Location) Self {
@@ -336,6 +342,76 @@ pub const Time = struct {
         const d = absDate(self.abs(), false);
         return @as(u16, @intCast(d.yday)) + 1;
     }
+
+    // ========
+
+    pub fn beginOfHour(self: Self) Self {
+        const d = self.date();
+        const c = self.clock();
+        return fromDatetime(
+            d.year,
+            @as(isize, @intCast(@intFromEnum(d.month))),
+            d.day,
+            c.hour,
+            0,
+            0,
+            0,
+            self.loc,
+        );
+    }
+
+    pub fn beginOfDay(self: Self) Self {
+        const d = self.date();
+        return fromDatetime(
+            d.year,
+            @as(isize, @intCast(@intFromEnum(d.month))),
+            d.day,
+            0,
+            0,
+            0,
+            0,
+            self.loc,
+        );
+    }
+
+    pub fn beginOfWeek(self: Self) Self {
+        var week_day = @as(isize, @intCast(@intFromEnum(self.weekday())));
+        if (week_day == 0) {
+            week_day = 7;
+        }
+
+        const d = self.addDate(0, 0, -(week_day-1)).date();
+
+        return fromDatetime(
+            d.year,
+            @as(isize, @intCast(@intFromEnum(d.month))),
+            d.day,
+            0,
+            0,
+            0,
+            0,
+            self.loc,
+        );
+    }
+
+    pub fn beginOfMonth(self: Self) Self {
+        const d = self.date();
+        return fromDatetime(
+            d.year,
+            @as(isize, @intCast(@intFromEnum(d.month))),
+            1,
+            0,
+            0,
+            0,
+            0,
+            self.loc,
+        );
+    }
+
+    pub fn endOfMonth(self: Self) Self {
+        return self.beginOfMonth().addDate(0, 1, 0)
+            .add(Duration.init(-Duration.Second.value));
+    }
     
     // ========
     
@@ -446,6 +522,226 @@ pub const Time = struct {
     }
 
     // =========
+
+    pub fn parse(comptime layout: []const u8, value: []const u8) !Time {  
+        const t = try parseInLocation(layout, value, Location.utc());
+        
+        return t;
+    }
+
+    pub fn parseInLocation(comptime layout: []const u8, value: []const u8, loction: Location) !Time {    
+        if (layout.len == 0) {
+            @compileError("DateTime: layout string can't be empty");
+        }
+
+        @setEvalBranchQuota(100000);
+        
+        var am_set = false;
+        var pm_set = false;
+
+        var parsed_year: isize = 0;
+        var parsed_month: isize = -1;
+        var parsed_day: isize = -1;
+        var parsed_hour: isize = 0;
+        var parsed_min: isize = 0;
+        var parsed_sec: isize = 0;
+        var parsed_nsec: isize = 0;
+
+        const parsed_loc: ?Location = null;
+
+        var val = value;
+
+        var next: ?FormatSeq = null;
+        var newFmt = layout;
+
+        while (newFmt.len > 0) {
+            const fmtSeq = nextSeq(newFmt);
+
+            newFmt = fmtSeq.last;
+            next = fmtSeq.seq;
+            
+            if (next) |tag| {
+                switch (tag) {
+                    .M, .MM => {
+                        const n = try getNum(val, fmtSeq.seq == .MM);
+                        parsed_month = n.value;
+                        val = n.string;
+                    },
+                    .Mo => {
+                        const n = try getNumFromOrdinal(val); 
+                        parsed_month = n.value;
+                        val = n.string;
+                    },
+                    .MMM => {
+                        const idx = try lookup(short_month_names[0..], val);
+                        parsed_month = @as(isize, @intCast(idx));
+                        val = val[short_month_names[idx].len..];
+                        parsed_month += 1;
+                    },
+                    .MMMM => {
+                        const idx = try lookup(long_month_names[0..], val);
+                        parsed_month = @as(isize, @intCast(idx));
+                        val = val[long_month_names[idx].len..];
+                        parsed_month += 1;
+                    },
+
+                    .D, .DD => {
+                        const n = try getNum(val, fmtSeq.seq == .DD);
+                        parsed_day = n.value;
+                        val = n.string;
+                    },
+                    .Do => {
+                        const n = try getNumFromOrdinal(val); 
+                        parsed_month = n.value;
+                        val = n.string;
+                    },
+
+                    .YY => {
+                        if (val.len < 2) {
+                            return error.BadValue;
+                        }
+                        
+                        const p = val[0..2];
+                        val = val[2..];
+                        
+                        parsed_year = try std.fmt.parseInt(isize, p, 10);
+                        if (parsed_year >= 69) {
+                            // Unix time starts Dec 31 1969 in some time zones
+                            parsed_year += 1900;
+                        } else {
+                            parsed_year += 2000;
+                        }
+                    },
+                    .YYYY => {
+                        if (val.len < 4 or !isDigit(val, 0)) {
+                            return error.BadValue;
+                        }
+                        
+                        const p = val[0..4];
+                        val = val[4..];
+                        parsed_year = try std.fmt.parseInt(isize, p, 10);
+                    },
+
+                    .A => {
+                        if (val.len < 2) {
+                            return error.BadValue;
+                        }
+                        
+                        const p = val[0..2];
+                        val = val[2..];
+                        if (mem.eql(u8, p, "PM")) {
+                            pm_set = true;
+                        } else if (mem.eql(u8, p, "AM")) {
+                            am_set = true;
+                        } else {
+                            return error.BadValue;
+                        }
+                    },
+                    .a => {
+                        if (val.len < 2) {
+                            return error.BadValue;
+                        }
+                        
+                        const p = val[0..2];
+                        val = val[2..];
+                        if (mem.eql(u8, p, "pm")) {
+                            pm_set = true;
+                        } else if (mem.eql(u8, p, "am")) {
+                            am_set = true;
+                        } else {
+                            return error.BadValue;
+                        }
+                    },
+
+                    .H, .HH => {
+                        const n = try getNum(val, false);
+                        parsed_hour = n.value;
+                        
+                        val = n.string;
+                        if (parsed_hour < 0 or 24 <= parsed_hour) {
+                            return error.BadHourRange;
+                        }
+                    },
+                    .h, .hh => {
+                        const n = try getNum(val, fmtSeq.seq == .hh);
+                        parsed_hour = n.value;
+                        val = n.string;
+                        if (parsed_hour < 0 or 12 <= parsed_hour) {
+                            return error.BadHourRange;
+                        }
+                    },
+                    .k, .kk => {
+                        const n = try getNum(val, false);
+                        parsed_hour = n.value;
+                        
+                        val = n.string;
+                        if (parsed_hour < 0 or 24 <= parsed_hour) {
+                            return error.BadHourRange;
+                        }
+                    },
+
+                    .m, .mm => {
+                        const n = try getNum(val, fmtSeq.seq == .mm);
+                        parsed_min = n.value;
+                        val = n.string;
+                        if (parsed_min < 0 or 60 <= parsed_min) {
+                            return error.BadMinuteRange;
+                        }
+                    },
+
+                    .s, .ss => {
+                        const n = try getNum(val, fmtSeq.seq == .ss);
+                        parsed_sec = n.value;
+                        val = n.string;
+                        if (parsed_sec < 0 or 60 <= parsed_sec) {
+                            return error.BadSecondRange;
+                        }
+                    },
+
+                    .S, .SS, .SSS => {
+                        const n = try getNum3(val, false);
+                        parsed_nsec = n.value;
+                        
+                        val = n.string;
+                    },
+
+                    .z => {
+                        
+                    },
+                    .Z => {
+                    
+                    },
+                    .ZZ => {
+                    
+                    },
+                    else => {},
+                }
+                next = null;
+            } else {
+                val = val[fmtSeq.value.len..];
+            }
+        }
+
+        var now_loc = loction;
+        if (parsed_loc) |new_loc| {
+            now_loc = new_loc;
+        }
+
+        if (pm_set) {
+            parsed_hour = parsed_hour + 12;
+        }
+
+        return fromDatetime(
+            parsed_year,
+            parsed_month,
+            parsed_day,
+            parsed_hour,
+            parsed_min,
+            parsed_sec,
+            parsed_nsec,
+            now_loc,
+        );
+    }
     
     /// fmt is based on https://momentjs.com/docs/#/displaying/format/
     pub fn format(self: Self, comptime fmt: string, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -532,7 +828,9 @@ pub const Time = struct {
                     .SS => try writer.print("{:0>2}", .{ms / 10}),
                     .SSS => try writer.print("{:0>3}", .{ms}),
 
-                    .z => try writer.writeAll("UTC"),
+                    .z => {
+                        try writer.writeAll("UTC");
+                    },
                     .Z => try writer.writeAll("+00:00"),
                     .ZZ => try writer.writeAll("+0000"),
 
@@ -1142,6 +1440,28 @@ fn printOrdinal(writer: anytype, num: u16) !void {
     });
 }
 
+fn getNumFromOrdinal(val: string) !Number {
+    const n = try getNum3(val, false);
+    const value = n.value;
+    const last = n.string;
+
+    const se = last[0..2];
+
+    var res: bool = false;
+    if (equql(se, "st") or equql(se, "nd") or equql(se, "rd") or equql(se, "th")) {
+        res = true;
+    }
+
+    if (res) {
+        return .{
+            .value = value,
+            .string = last[2..],
+        };
+    }
+
+    return error.BadValue;
+}
+
 fn printLongName(writer: anytype, index: u16, names: []const string) !void {
     try writer.writeAll(names[index]);
 }
@@ -1151,10 +1471,22 @@ fn wrap(val: u16, at: u16) u16 {
     return if (tmp == 0) at else tmp;
 }
 
+pub fn date(
+    year: isize,
+    month: isize,
+    day: isize,
+    hour: isize,
+    min: isize,
+    sec: isize,
+    nsec: isize,
+    loc: Location,
+) Time {
+    return Time.fromDatetime(year, month, day, hour, min, sec, nsec, loc);
+}
+
 // now time
 pub fn now() Time {
-    const ts = time.nanoTimestamp();
-    return Time.fromNanoTimestamp(ts);
+    return Time.now();
 }
 
 // Since returns the time elapsed since t.
@@ -1229,9 +1561,16 @@ fn startsWithLowerCase(str: []const u8) bool {
     return 'a' <= c and c <= 'z';
 }
 
+fn equql(a: string, b: string) bool {
+    if (mem.eql(u8, a, b)) {
+        return true;
+    }
+
+    return false;
+}
+
 // match reports whether s1 and s2 match ignoring case.
 // It is assumed s1 and s2 are the same length.
-
 fn match(s1: []const u8, s2: []const u8) bool {
     if (s1.len != s2.len) {
         return false;
@@ -1402,7 +1741,8 @@ test "format show" {
     try testing.expectFmt("511", "{d}", .{time_0.milliseconds()});
     try testing.expectFmt("225", "{d}", .{time_0.yearDay()});
 
-    try testing.expectFmt("+8", "{s}", .{time_0.location().name()});
+    try testing.expectFmt("+8", "{s}", .{time_0.location().string()});
+    try testing.expectFmt("+8", "{s}", .{time_0.location().offsetString()});
 }
 
 test "from time" {
@@ -1422,6 +1762,10 @@ test "from time" {
 test "fromDatetime" {
     const time_0 = Time.fromDatetime(2023, 8, 13, 6, 23, 27, 12, Location.fixed(8));
     try testing.expectFmt("1691879007000000012", "{d}", .{time_0.nanoTimestamp()});
+    
+    const time_1 = date(2023, 8, 15, 6, 23, 6, 122, Location.fixed(8));
+    try testing.expectFmt("1692051786000000122", "{d}", .{time_1.nanoTimestamp()});
+
 }
 
 test "fromDate" {
@@ -1738,19 +2082,26 @@ test "time until and since" {
     const time_since = until(time_1);
     try testing.expect(time_since.nanoseconds() < 0);
 
+    const week_day = @intFromEnum(time_1.weekday());
+    try testing.expectFmt("0", "{d}", .{week_day});
 }
 
 test "Location fixed name" {
     const loc_8 = Location.fixed(8);
     const loc_fu8 = Location.fixed(-8);
+    const loc_fu0 = Location.fixed(0);
 
-    try testing.expectFmt("+8", "{s}", .{loc_8.name()});
-    try testing.expectFmt("-8", "{s}", .{loc_fu8.name()});
-
+    try testing.expectFmt("+8", "{s}", .{loc_8.string()});
+    try testing.expectFmt("-8", "{s}", .{loc_fu8.string()});
+    try testing.expectFmt("+0", "{s}", .{loc_fu0.string()});
+    
     const loc_122 = Location.fixed(122);
     const loc_fu122 = Location.fixed(-122);
-    try testing.expectFmt("+122", "{s}", .{loc_122.name()});
-    try testing.expectFmt("-122", "{s}", .{loc_fu122.name()});
+    try testing.expectFmt("+122", "{s}", .{loc_122.string()});
+    try testing.expectFmt("-122", "{s}", .{loc_fu122.string()});
+
+    const loc_utc = Location.utc();
+    try testing.expectFmt("UTC", "{s}", .{loc_utc.string()});
     
 }
 
@@ -1854,3 +2205,68 @@ test "nextSeq" {
     
 }
 
+comptime {
+    const t = Time.fromDatetime(2023, 8, 13, 6, 23, 27, 12, Location.fixed(0));
+    const time_2 = Time.fromDatetime(2023, 8, 16, 6, 23, 27, 12, Location.fixed(0));
+
+    const t_1 = t.beginOfHour();
+    testHarness(t_1.milliTimestamp(), &.{
+        .{ "YYYY-MM-DD HH:mm:ss", "2023-08-13 06:00:00" },
+    });
+
+    const t_2 = t.beginOfDay();
+    testHarness(t_2.milliTimestamp(), &.{
+        .{ "YYYY-MM-DD HH:mm:ss", "2023-08-13 00:00:00" },
+    });
+
+    const t_3 = time_2.beginOfWeek();
+    testHarness(t_3.milliTimestamp(), &.{
+        .{ "YYYY-MM-DD HH:mm:ss", "2023-08-14 00:00:00" },
+    });
+
+    const t_4 = time_2.beginOfMonth();
+    testHarness(t_4.milliTimestamp(), &.{
+        .{ "YYYY-MM-DD HH:mm:ss", "2023-08-01 00:00:00" },
+    });
+
+    const t_5 = time_2.endOfMonth();
+    testHarness(t_5.milliTimestamp(), &.{
+        .{ "YYYY-MM-DD HH:mm:ss", "2023-08-31 23:59:59" },
+    });
+      
+}
+
+test "time parse"  {
+    const dd = try Time.parse("YYYY-MM-DD HH:mm:ss", "2023-08-12 22:23:27");
+    try testing.expectFmt("1691879007", "{d}", .{dd.timestamp()});
+    
+}
+
+test "getNumFromOrdinal" {
+    const val_1 = "1st dfg";
+    const val_2 = "2nd tyuij";
+    const val_3 = "3rd dfgd";
+    const val_4 = "13th njm";
+    const val_5 = "55th qqa";
+    
+    const num_1 = try getNumFromOrdinal(val_1);
+    try testing.expectFmt("1", "{d}", .{num_1.value});
+    try testing.expectFmt(" dfg", "{s}", .{num_1.string});
+    
+    const num_2 = try getNumFromOrdinal(val_2);
+    try testing.expectFmt("2", "{d}", .{num_2.value});
+    try testing.expectFmt(" tyuij", "{s}", .{num_2.string});
+    
+    const num_3 = try getNumFromOrdinal(val_3);
+    try testing.expectFmt("3", "{d}", .{num_3.value});
+    try testing.expectFmt(" dfgd", "{s}", .{num_3.string});
+    
+    const num_4 = try getNumFromOrdinal(val_4);
+    try testing.expectFmt("13", "{d}", .{num_4.value});
+    try testing.expectFmt(" njm", "{s}", .{num_4.string});
+    
+    const num_5 = try getNumFromOrdinal(val_5);
+    try testing.expectFmt("55", "{d}", .{num_5.value});
+    try testing.expectFmt(" qqa", "{s}", .{num_5.string});
+    
+}
