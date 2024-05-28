@@ -468,17 +468,14 @@ pub const Time = struct {
         const seconds = self.second();
         const ms = @as(u16, @intCast(@divTrunc(self.nanosecond(), time.ns_per_ms)));
         
-        comptime var s = 0;
-        comptime var e = 0;
-        comptime var next: ?FormatSeq = null;
-        inline for (fmt, 0..) |c, i| {
-            e = i + 1;
+        var next: ?FormatSeq = null;
+        var newFmt = fmt;
+        while (newFmt.len > 0) {
+            const fmtSeq = nextSeq(newFmt);
 
-            if (comptime std.meta.stringToEnum(FormatSeq, fmt[s..e])) |tag| {
-                next = tag;
-                if (i < fmt.len - 1) continue;
-            }
-
+            newFmt = fmtSeq.last;
+            next = fmtSeq.seq;
+            
             if (next) |tag| {
                 switch (tag) {
                     .MM => try writer.print("{:0>2}", .{months + 1}),
@@ -543,24 +540,8 @@ pub const Time = struct {
                     .X => try writer.print("{}", .{self.timestamp()}),
                 }
                 next = null;
-                s = i;
-            }
-
-            switch (c) {
-                ',',
-                ' ',
-                ':',
-                '-',
-                '.',
-                'T',
-                'W',
-                '/',
-                => {
-                    try writer.writeAll(&.{c});
-                    s = i + 1;
-                    continue;
-                },
-                else => {},
+            } else {
+                try writer.writeAll(fmtSeq.value);
             }
         }
     }
@@ -574,7 +555,7 @@ pub const Time = struct {
     }
 };
 
-const FormatSeq = enum {
+pub const FormatSeq = enum {
     M, // 1 2 ... 11 12
     Mo, // 1st 2nd ... 11th 12th
     MM, // 01 02 ... 11 12
@@ -622,6 +603,10 @@ const FormatSeq = enum {
     ZZ, // -0700 -0600 ... +0600 +0700
     x, // unix milli
     X, // unix
+
+    fn eql(self: FormatSeq, other: FormatSeq) bool {
+        return @intFromEnum(self) == @intFromEnum(other);
+    }
 };
 
 pub const format = struct {
@@ -1184,6 +1169,46 @@ pub fn until(t: Time) Duration {
 	return t.sub(now());
 }
 
+const SeqResut = struct {
+    seq: ?FormatSeq,
+    value: []const u8,
+    last: []const u8,
+};
+
+fn nextSeq(fmt: []const u8) SeqResut {
+    var next: ?FormatSeq = null;
+    var maxLen: usize = 0;
+
+    if (fmt.len < 4) {
+        maxLen = fmt.len;
+    } else {
+        maxLen = 4;
+    }
+    
+    var i: usize = 1;
+    var lock: usize = 1;
+    while (i <= maxLen) : (i += 1) {
+        if (std.meta.stringToEnum(FormatSeq, fmt[0..i])) |tag| {
+            next = tag;
+            lock = i;
+        }
+    }
+
+    if (next) |tag| {
+        return SeqResut{
+            .seq = tag,
+            .value = fmt[0..lock],
+            .last = fmt[lock..],
+        };
+    }
+
+    return SeqResut{
+        .seq = null,
+        .value = fmt[0..1],
+        .last = fmt[1..],
+    };
+}
+
 fn isDigit(s: []const u8, i: usize) bool {
     if (s.len <= i) {
         return false;
@@ -1211,18 +1236,22 @@ fn match(s1: []const u8, s2: []const u8) bool {
     if (s1.len != s2.len) {
         return false;
     }
+    
     var i: usize = 0;
     while (i < s1.len) : (i += 1) {
         var c1 = s1[i];
         var c2 = s2[i];
+        
         if (c1 != c2) {
             c1 |= ('a' - 'A');
             c2 |= ('a' - 'A');
+            
             if (c1 != c2 or c1 < 'a' or c1 > 'z') {
                 return false;
             }
         }
     }
+    
     return true;
 }
 
@@ -1444,6 +1473,11 @@ comptime {
         .{ "YYYY-MM-DD HH:mm:ss", "2023-08-12 22:23:27" },
     });
 
+    // test more format 
+    testHarness(1691879007511, &.{
+        .{ "YYYY??MM??DD HH<>mm<>ss", "2023??08??12 22<>23<>27" },
+    });
+    
     testHarness(0, &.{.{ "YYYY-MM-DD HH:mm:ss", "1970-01-01 00:00:00" }});
     testHarness(1257894000000, &.{.{ "YYYY-MM-DD HH:mm:ss", "2009-11-10 23:00:00" }});
     testHarness(1634858430000, &.{.{ "YYYY-MM-DD HH:mm:ss", "2021-10-21 23:20:30" }});
@@ -1809,4 +1843,14 @@ test "startsWithLowerCase" {
    
 }
 
+test "nextSeq" {
+    const val = "DDDD --==";
+    const seq = nextSeq(val);
+    
+    try testing.expect(seq.seq.?.eql(FormatSeq.DDDD));
+    
+    try testing.expectFmt("DDDD", "{s}", .{seq.value});
+    try testing.expectFmt(" --==", "{s}", .{seq.last});
+    
+}
 
