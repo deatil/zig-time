@@ -107,7 +107,6 @@ pub const Location = struct {
         }
 
         const oo = buf[w..];
-
         return oo[0..];
     }
 
@@ -1724,7 +1723,7 @@ fn parseTimezone(s: []const u8) !Number {
 
     var str = s;
 
-    if (str.len != 5 and str.len != 6) {
+    if (str.len < 5 or (str[0] != '-' and str[0] != '+')) {
         return error.BadData;
     }
     
@@ -1739,6 +1738,10 @@ fn parseTimezone(s: []const u8) !Number {
 
     if (str[0] == ':') {
         str = str[1..];
+
+        if (str.len < 2) {
+            return error.BadData;
+        }
     }
     
     const mm = try getNum(str, true);
@@ -2243,7 +2246,7 @@ test "lookup" {
     try testing.expectFmt("1", "{d}", .{idx_1});
     
 }
-
+ 
 test "getNum" {
     const val_1 = "35hy";
     const val_2 = "3r78j";
@@ -2379,6 +2382,10 @@ test "Location parse" {
     const val_1 = "+0800";
     const val_2 = "-0930";
 
+    const val_3 = "+0930 tyr";
+    const val_4 = "-09302sry";
+    const val_5 = "0930";
+
     const t_1 = try Location.parse(val_1);
     try testing.expectFmt("28800", "{d}", .{t_1.offset});
     try testing.expectFmt("+0800", "{s}", .{t_1.string()});
@@ -2388,6 +2395,21 @@ test "Location parse" {
     try testing.expectFmt("-34200", "{d}", .{t_2.offset});
     try testing.expectFmt("-0930", "{s}", .{t_2.string()});
     try testing.expectFmt("-09:30", "{s}", .{t_2.offsetFormatString()});
+
+    const num_3 = try parseTimezone(val_3);
+    try testing.expectFmt("570", "{d}", .{num_3.value});
+    try testing.expectFmt(" tyr", "{s}", .{num_3.string});
+
+    const num_4 = try parseTimezone(val_4);
+    try testing.expectFmt("-570", "{d}", .{num_4.value});
+    try testing.expectFmt("2sry", "{s}", .{num_4.string});
+
+    if (parseTimezone(val_5)) |_| {
+        const data = "";
+        try testing.expectFmt("error", "{s}", .{data});
+    } else |_| {
+        // todo
+    }
 }
 
 
