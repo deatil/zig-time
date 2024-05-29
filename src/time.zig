@@ -1,11 +1,24 @@
-const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
+
+const ctx = @This();
 
 const string = []const u8;
 const mem = std.mem;
 const time = std.time;
 const epoch = time.epoch;
+
+// timezone type list
+const GMT = Location.create(0, "GMT");
+const UTC = Location.create(0, "UTC");
+const CET = Location.create(60, "CET");
+const EET = Location.create(120, "EET");
+const MET = Location.create(210, "MET");
+const CTT = Location.create(480, "CTT");
+const CAT = Location.create(-60, "CAT");
+const EST = Location.create(-300, "EST");
+const MST = Location.create(-420, "MST");
+const CST = Location.create(-480, "CST");
 
 pub const Location = struct {
     const Self = @This();
@@ -234,6 +247,14 @@ pub const Time = struct {
     pub fn now() Time {
         const ts = time.nanoTimestamp();
         return Time.fromNanoTimestamp(ts);
+    }
+
+    pub fn utc(self: Self) Self {
+        var cp = self;
+
+        cp.ns = self.ns;
+        cp.loc = Location.utc();
+        return cp;
     }
     
     pub fn setLoc(self: Self, loc: Location) Self {
@@ -625,9 +646,9 @@ pub const Time = struct {
                         parsed_month = n.value;
                         val = n.string;
                     },
-                    .MMM => {
+                    .MMM => { 
                         const idx = try lookup(short_month_names[0..], val);
-                        parsed_month = @as(isize, @intCast(idx));
+                        parsed_month = @as(isize, @intCast(idx)); 
                         val = val[short_month_names[idx].len..];
                         parsed_month += 1;
                     },
@@ -645,10 +666,21 @@ pub const Time = struct {
                     },
                     .Do => {
                         const n = try getNumFromOrdinal(val); 
-                        parsed_month = n.value;
+                        parsed_day = n.value;
                         val = n.string;
                     },
 
+                    .Y => {
+                        if (val.len < 5) {
+                            return error.BadValue;
+                        }
+
+                        const p = val[0..5];
+                        val = val[5..];
+
+                        parsed_year = try std.fmt.parseInt(isize, p, 10);
+                        parsed_year -= 10000;
+                    },
                     .YY => {
                         if (val.len < 2) {
                             return error.BadValue;
@@ -759,7 +791,36 @@ pub const Time = struct {
                     },
 
                     .z => {
+                        if (val.len < 3) {
+                            return error.BadValue;
+                        }
                         
+                        const p = val[0..3];
+                        val = val[3..];
+
+                        if (ctx.equal(p, "GMT")) {
+                            parsed_loc = GMT;
+                        } else if (ctx.equal(p, "UTC")) {
+                            parsed_loc = UTC;   
+                        } else if (ctx.equal(p, "CET")) {
+                            parsed_loc = CET;  
+                        } else if (ctx.equal(p, "EET")) {
+                            parsed_loc = EET;   
+                        } else if (ctx.equal(p, "MET")) {
+                            parsed_loc = MET;   
+                        } else if (ctx.equal(p, "CTT")) {
+                            parsed_loc = CTT;   
+                        } else if (ctx.equal(p, "CAT")) {
+                            parsed_loc = CAT;   
+                        } else if (ctx.equal(p, "EST")) {
+                            parsed_loc = EST;   
+                        } else if (ctx.equal(p, "MST")) {
+                            parsed_loc = MST;   
+                        } else if (ctx.equal(p, "CST")) {
+                            parsed_loc = CST;  
+                        } else {
+                            return error.BadValue;
+                        }       
                     },
                     .Z, .ZZ => {
                         const n = try parseTimezone(val); 
@@ -1509,7 +1570,7 @@ fn getNumFromOrdinal(val: string) !Number {
     const se = last[0..2];
 
     var res: bool = false;
-    if (equql(se, "st") or equql(se, "nd") or equql(se, "rd") or equql(se, "th")) {
+    if (equal(se, "st") or equal(se, "nd") or equal(se, "rd") or equal(se, "th")) {
         res = true;
     }
 
@@ -1622,7 +1683,8 @@ fn startsWithLowerCase(str: []const u8) bool {
     return 'a' <= c and c <= 'z';
 }
 
-fn equql(a: string, b: string) bool {
+// if a == b, return true
+fn equal(a: string, b: string) bool {
     if (mem.eql(u8, a, b)) {
         return true;
     }
@@ -2343,10 +2405,108 @@ comptime {
       
 }
 
-test "time parse"  {
+test "time parse and setLoc"  {
     const dd = try Time.parse("YYYY-MM-DD HH:mm:ss", "2023-08-12 22:23:27");
     try testing.expectFmt("1691879007", "{d}", .{dd.timestamp()});
+
+    // ============
+
+    const ii_1: i64 = 1691879007;
+
+    const time_0 = Time.fromTimestamp(ii_1).setLoc(GMT);
+    try expectFmt(time_0, "YYYY-MM-DD HH:mm:ss z", "2023-08-12 22:23:27 GMT");
+ 
+    const time_1 = Time.fromTimestamp(ii_1).setLoc(UTC);
+    try expectFmt(time_1, "YYYY-MM-DD HH:mm:ss z", "2023-08-12 22:23:27 UTC");
+
+    const time_2 = Time.fromTimestamp(ii_1).setLoc(CET);
+    try expectFmt(time_2, "YYYY-MM-DD HH:mm:ss z", "2023-08-12 23:23:27 CET");
+
+    const time_3 = Time.fromTimestamp(ii_1).setLoc(EET);
+    try expectFmt(time_3, "YYYY-MM-DD HH:mm:ss z", "2023-08-13 00:23:27 EET");
+
+    const time_4 = Time.fromTimestamp(ii_1).setLoc(MET);
+    try expectFmt(time_4, "YYYY-MM-DD HH:mm:ss z", "2023-08-13 01:53:27 MET");
+
+    const time_5 = Time.fromTimestamp(ii_1).setLoc(CTT);
+    try expectFmt(time_5, "YYYY-MM-DD HH:mm:ss z", "2023-08-13 06:23:27 CTT");
+
+    const time_6 = Time.fromTimestamp(ii_1).setLoc(CAT);
+    try expectFmt(time_6, "YYYY-MM-DD HH:mm:ss z", "2023-08-12 21:23:27 CAT");
+
+    const time_7 = Time.fromTimestamp(ii_1).setLoc(EST);
+    try expectFmt(time_7, "YYYY-MM-DD HH:mm:ss z", "2023-08-12 17:23:27 EST");
+
+    const time_8 = Time.fromTimestamp(ii_1).setLoc(CST);
+    try expectFmt(time_8, "YYYY-MM-DD HH:mm:ss z", "2023-08-12 14:23:27 CST");
+
+    const time_9 = Time.fromTimestamp(ii_1).setLoc(MST);
+    try expectFmt(time_9, "YYYY-MM-DD HH:mm:ss z", "2023-08-12 15:23:27 MST");
+
+    // ============
+
+    const dd_0 = try Time.parse("YYYY-MM-DD HH:mm:ss z", "2023-08-12 22:23:27 GMT");
+    try testing.expectFmt("1691879007", "{d}", .{dd_0.timestamp()});
+
+    const dd_1 = try Time.parse("YYYY-MM-DD HH:mm:ss z", "2023-08-12 22:23:27 UTC");
+    try testing.expectFmt("1691879007", "{d}", .{dd_1.timestamp()});
+
+    const dd_2 = try Time.parse("YYYY-MM-DD HH:mm:ss z", "2023-08-12 23:23:27 CET");
+    try testing.expectFmt("1691879007", "{d}", .{dd_2.timestamp()});
+
+    const dd_3 = try Time.parse("YYYY-MM-DD HH:mm:ss z", "2023-08-13 00:23:27 EET");
+    try testing.expectFmt("1691879007", "{d}", .{dd_3.timestamp()});
+
+    const dd_4 = try Time.parse("YYYY-MM-DD HH:mm:ss z", "2023-08-13 01:53:27 MET");
+    try testing.expectFmt("1691879007", "{d}", .{dd_4.timestamp()});
+
+    const dd_5 = try Time.parse("YYYY-MM-DD HH:mm:ss z", "2023-08-13 06:23:27 CTT");
+    try testing.expectFmt("1691879007", "{d}", .{dd_5.timestamp()});
+
+    const dd_6 = try Time.parse("YYYY-MM-DD HH:mm:ss z", "2023-08-12 21:23:27 CAT");
+    try testing.expectFmt("1691879007", "{d}", .{dd_6.timestamp()});
+
+    const dd_7 = try Time.parse("YYYY-MM-DD HH:mm:ss z", "2023-08-12 17:23:27 EST");
+    try testing.expectFmt("1691879007", "{d}", .{dd_7.timestamp()});
+
+    const dd_8 = try Time.parse("YYYY-MM-DD HH:mm:ss z", "2023-08-12 14:23:27 CST");
+    try testing.expectFmt("1691879007", "{d}", .{dd_8.timestamp()});
+
+    const dd_9 = try Time.parse("YYYY-MM-DD HH:mm:ss z", "2023-08-12 15:23:27 MST");
+    try testing.expectFmt("1691879007", "{d}", .{dd_9.timestamp()});
+
+    // ============
     
+    const time_10 = Time.fromTimestamp(ii_1).setLoc(MST);
+    try expectFmt(time_10, "YYYY-Mo-Do hh:m:s a z", "2023-8th-12th 03:23:27 pm MST");
+
+    const dd_10 = try Time.parse("YYYY-Mo-Do hh:m:s a z", "2023-8th-12th 03:23:27 pm MST");
+    try testing.expectFmt("1691879007", "{d}", .{dd_10.timestamp()});
+
+    // ============
+    
+    const time_11 = Time.fromTimestamp(ii_1).setLoc(MST);
+    try expectFmt(time_11, "Y-Mo-Do hh:m:s a z", "12023-8th-12th 03:23:27 pm MST");
+
+    const dd_11 = try Time.parse("Y-Mo-Do hh:m:s a z", "12023-8th-12th 03:23:27 pm MST");
+    try testing.expectFmt("1691879007", "{d}", .{dd_11.timestamp()});
+
+    // ============
+    
+    const time_12 = Time.fromTimestamp(ii_1).setLoc(MST);
+    try expectFmt(time_12, "YYYY-MMM-Do hh:m:s a z", "2023-Aug-12th 03:23:27 pm MST");
+
+    const dd_12 = try Time.parse("YYYY-MMM-Do hh:m:s a z", "2023-Aug-12th 03:23:27 pm MST");
+    try testing.expectFmt("1691879007", "{d}", .{dd_12.timestamp()});
+
+    // ============
+    
+    const time_13 = Time.fromTimestamp(ii_1).setLoc(MST);
+    try expectFmt(time_13, "YYYY-MMMM-Do hh:m:s a z", "2023-August-12th 03:23:27 pm MST");
+
+    const dd_13 = try Time.parse("YYYY-MMMM-Do hh:m:s a z", "2023-August-12th 03:23:27 pm MST");
+    try testing.expectFmt("1691879007", "{d}", .{dd_13.timestamp()});
+
 }
 
 test "getNumFromOrdinal" {
@@ -2410,6 +2570,17 @@ test "Location parse" {
     } else |_| {
         // todo
     }
+}
+
+test "switch" {
+    const d = "test1";
+
+    const res = switch (true) {
+        equal(d, "test1") => true,
+        else => false,
+    };
+    
+    try testing.expect(res);
 }
 
 
