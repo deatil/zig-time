@@ -20,39 +20,85 @@ pub const Location = struct {
         };
     }
 
+    pub fn create(offset: i32, n: []const u8) Location {
+        const new_offset = offset * time.s_per_min;
+        return init(new_offset, n);
+    }
+    
     pub fn utc() Location {
         return init(0, "UTC");
     }
 
-    // offset is hour
+    // offset is minute
     pub fn fixed(offset: i32) Location {
-        const new_offset = offset * time.s_per_hour;
-
+        const new_offset = offset * time.s_per_min;
         return init(new_offset, "");
     }
 
+    pub fn parse(str: []const u8) !Location {
+        return parseWithName(str, "");
+    }
+
+    pub fn parseWithName(str: []const u8, name: []const u8) !Location {
+        const offset = try parseName(str);  
+        const new_offset = offset * time.s_per_min;
+
+        return init(new_offset, name);
+    }
+    
     pub fn string(self: Self) []const u8 {
         if (self.name.len > 0) {
             return self.name;
         }
 
-        return self.fixedName(@divTrunc(self.offset, time.s_per_hour));
-    }
-
-    pub fn offsetString(self: Self) []const u8 {
-        return self.fixedName(@divTrunc(self.offset, time.s_per_hour));
+        const o = self.offset;
+        return self.fixedName(o, false);
     }
     
-    fn fixedName(self: Self, offset: i32) []const u8 {
+    pub fn offsetString(self: Self) []const u8 {
+        const o = self.offset;
+        return self.fixedName(o, false);
+    }
+    
+    pub fn offsetFormatString(self: Self) []const u8 {
+        const o = self.offset;
+        return self.fixedName(o, true);
+    }
+    
+    pub fn fixedName(self: Self, offset: i32, is_format: bool) []const u8 {
         _ = self;
+
+        var new_offset: u64 = 0;
+        if (offset > 0) {
+            new_offset = @as(u64, @intCast(offset));
+        } else {
+            new_offset = @as(u64, @intCast(-offset));
+        }
+ 
+        const h = @divTrunc(@as(isize, @intCast(new_offset % time.s_per_day)), time.s_per_hour);
+        const m = @divTrunc(@as(isize, @intCast(new_offset % time.s_per_hour)), time.s_per_min);
         
         var buf: [32]u8 = undefined;
 
         var w = buf.len;
-        const u = @as(u64, @intCast(@abs(offset)));
         
-        w = fmtInt(buf[0..w], u);
+        w = fmtInt(buf[0..w], @as(u64, @intCast(@abs(m))));
+        if (m < 10) {
+            w -= 1;
+            buf[w] = '0';
+        }
+
+        if (is_format) {
+            w -= 1;
+            buf[w] = ':';
+        }
         
+        w = fmtInt(buf[0..w], @as(u64, @intCast(@abs(h))));
+        if (h < 10) {
+            w -= 1;
+            buf[w] = '0';
+        }
+          
         w -= 1;
         if (offset < 0) {
             buf[w] = '-';
@@ -63,6 +109,12 @@ pub const Location = struct {
         const oo = buf[w..];
 
         return oo[0..];
+    }
+
+    pub fn parseName(str: []const u8) !i32 {
+        const num = try parseTimezone(str);
+        
+        return @as(i32, @intCast(num.value));
     }
 };
 
@@ -194,10 +246,11 @@ pub const Time = struct {
     }
 
     pub fn location(self: Self) Location {
-        return self.loc;
+        const loc = self.loc;
+        return loc;
     }
 
-    // return timestamp
+    // =====================
     
     pub fn timestamp(self: Self) i64 {
         return @as(i64, @intCast(@divFloor(self.ns, time.ns_per_s)));
@@ -215,8 +268,9 @@ pub const Time = struct {
         return self.ns;
     }
 
-    // compare from a and b
+    // =====================
 
+    // compare a is isZero
     pub fn isZero(self: Self) bool {
         return self.nanoTimestamp() == 0;
     }
@@ -547,7 +601,7 @@ pub const Time = struct {
         var parsed_sec: isize = 0;
         var parsed_nsec: isize = 0;
 
-        const parsed_loc: ?Location = null;
+        var parsed_loc: ?Location = null;
 
         var val = value;
 
@@ -708,11 +762,10 @@ pub const Time = struct {
                     .z => {
                         
                     },
-                    .Z => {
-                    
-                    },
-                    .ZZ => {
-                    
+                    .Z, .ZZ => {
+                        const n = try parseTimezone(val); 
+                        parsed_loc = Location.create(@as(i32, @intCast(n.value)), "");
+                        val = n.string;
                     },
                     else => {},
                 }
@@ -752,6 +805,8 @@ pub const Time = struct {
         }
 
         @setEvalBranchQuota(100000);
+
+        const tz = self.location();
 
         const d = self.date();
 
@@ -829,10 +884,17 @@ pub const Time = struct {
                     .SSS => try writer.print("{:0>3}", .{ms}),
 
                     .z => {
-                        try writer.writeAll("UTC");
+                        const timezone = tz.string();
+                        try writer.writeAll(timezone);
                     },
-                    .Z => try writer.writeAll("+00:00"),
-                    .ZZ => try writer.writeAll("+0000"),
+                    .Z => {
+                        const timezone = tz.offsetFormatString();
+                        try writer.writeAll(timezone);
+                    },
+                    .ZZ => {
+                        const timezone = tz.offsetString();
+                        try writer.writeAll(timezone);
+                    },
 
                     .x => try writer.print("{}", .{self.milliTimestamp()}),
                     .X => try writer.print("{}", .{self.timestamp()}),
@@ -1621,6 +1683,7 @@ fn getNum(s: []const u8, fixed: bool) !Number {
         if (fixed) {
             return error.BadData;
         }
+        
         return Number{
             .value = @as(isize, @intCast(s[0])) - '0',
             .string = s[1..],
@@ -1651,6 +1714,45 @@ fn getNum3(s: []const u8, fixed: bool) !Number {
     return Number{
         .value = n,
         .string = s[i..],
+    };
+}
+
+fn parseTimezone(s: []const u8) !Number {
+    var is_neg: bool = false;
+    var h: isize = 0;
+    var m: isize = 0;
+
+    var str = s;
+
+    if (str.len != 5 and str.len != 6) {
+        return error.BadData;
+    }
+    
+    if (str[0] == '-') {
+        is_neg = true;
+    }
+    str = str[1..];
+    
+    const hh = try getNum(str, true);
+    h = hh.value;
+    str = hh.string;
+
+    if (str[0] == ':') {
+        str = str[1..];
+    }
+    
+    const mm = try getNum(str, true);
+    m = mm.value;
+    str = mm.string;
+
+    var oo = h * 60 + m;
+    if (is_neg) {
+        oo = -oo;
+    }
+    
+    return Number{
+        .value = oo,
+        .string = str,
     };
 }
 
@@ -1722,7 +1824,7 @@ test "isZero" {
 test "format show" {
     const ii_0: i128 = 1691879007511594906;
 
-    const time_0 = Time.fromNanoTimestamp(ii_0).setLoc(Location.fixed(8));
+    const time_0 = Time.fromNanoTimestamp(ii_0).setLoc(Location.fixed(480));
 
     try testing.expectFmt("1691879007", "{d}", .{time_0.timestamp()});
     try testing.expectFmt("1691879007511", "{d}", .{time_0.milliTimestamp()});
@@ -1741,47 +1843,47 @@ test "format show" {
     try testing.expectFmt("511", "{d}", .{time_0.milliseconds()});
     try testing.expectFmt("225", "{d}", .{time_0.yearDay()});
 
-    try testing.expectFmt("+8", "{s}", .{time_0.location().string()});
-    try testing.expectFmt("+8", "{s}", .{time_0.location().offsetString()});
+    try testing.expectFmt("+0800", "{s}", .{time_0.location().string()});
+    try testing.expectFmt("+0800", "{s}", .{time_0.location().offsetString()});
 }
 
 test "from time" {
     const ii_0: i64 = 1691879007511594;
-    const time_0 = Time.fromMicroTimestamp(ii_0).setLoc(Location.fixed(8));
+    const time_0 = Time.fromMicroTimestamp(ii_0).setLoc(Location.fixed(480));
     try testing.expectFmt("1691879007511594000", "{d}", .{time_0.nanoTimestamp()});
 
     const ii_1: i64 = 1691879007511;
-    const time_1 = Time.fromMilliTimestamp(ii_1).setLoc(Location.fixed(8));
+    const time_1 = Time.fromMilliTimestamp(ii_1).setLoc(Location.fixed(480));
     try testing.expectFmt("1691879007511000000", "{d}", .{time_1.nanoTimestamp()});
 
     const ii_2: i64 = 1691879007;
-    const time_2 = Time.fromMilliTimestamp(ii_2).setLoc(Location.fixed(8));
+    const time_2 = Time.fromMilliTimestamp(ii_2).setLoc(Location.fixed(480));
     try testing.expectFmt("1691879007000000", "{d}", .{time_2.nanoTimestamp()});
 }
 
 test "fromDatetime" {
-    const time_0 = Time.fromDatetime(2023, 8, 13, 6, 23, 27, 12, Location.fixed(8));
+    const time_0 = Time.fromDatetime(2023, 8, 13, 6, 23, 27, 12, Location.fixed(480));
     try testing.expectFmt("1691879007000000012", "{d}", .{time_0.nanoTimestamp()});
     
-    const time_1 = date(2023, 8, 15, 6, 23, 6, 122, Location.fixed(8));
+    const time_1 = date(2023, 8, 15, 6, 23, 6, 122, Location.fixed(480));
     try testing.expectFmt("1692051786000000122", "{d}", .{time_1.nanoTimestamp()});
 
 }
 
 test "fromDate" {
-    const time_0 = Time.fromDate(2023, 8, 13, Location.fixed(8));
+    const time_0 = Time.fromDate(2023, 8, 13, Location.fixed(480));
     try testing.expectFmt("1691856000000000000", "{d}", .{time_0.nanoTimestamp()});
 }
 
 test "weekday" {
     const ii_0: i64 = 1691879007511594;
-    const time_0 = Time.fromMicroTimestamp(ii_0).setLoc(Location.fixed(8));
+    const time_0 = Time.fromMicroTimestamp(ii_0).setLoc(Location.fixed(480));
     try testing.expectFmt("Sunday", "{s}", .{time_0.weekday().string()});
 }
 
 test "ISOWeek" {
     const ii_0: i64 = 1691879007511594;
-    const time_0 = Time.fromMicroTimestamp(ii_0).setLoc(Location.fixed(8));
+    const time_0 = Time.fromMicroTimestamp(ii_0).setLoc(Location.fixed(480));
     try testing.expectFmt("2023", "{d}", .{time_0.isoWeek().year});
     try testing.expectFmt("33", "{d}", .{time_0.isoWeek().week});
 }
@@ -1946,7 +2048,7 @@ test "after and before" {
 test "Clock show" {
     const ii_0: i128 = 1691879007511594906;
 
-    const time_0 = Time.fromNanoTimestamp(ii_0).setLoc(Location.fixed(8));
+    const time_0 = Time.fromNanoTimestamp(ii_0).setLoc(Location.fixed(480));
     const clock_0 = time_0.clock();
     
     try testing.expectFmt("6", "{d}", .{clock_0.hour});
@@ -1956,22 +2058,22 @@ test "Clock show" {
 
 test "add" {
     const ii_0: i128 = 1691879007511594906;
-    var time_0 = Time.fromNanoTimestamp(ii_0).setLoc(Location.fixed(8));
+    var time_0 = Time.fromNanoTimestamp(ii_0).setLoc(Location.fixed(480));
 
-    try expectFmt(time_0, "YYYY-MM-DD hh:mm:ss A z", "2023-08-13 06:23:27 AM UTC");
+    try expectFmt(time_0, "YYYY-MM-DD hh:mm:ss A z", "2023-08-13 06:23:27 AM +0800");
     
     time_0 = time_0.add(Duration.init(5 * Duration.Second.value));
-    try expectFmt(time_0, "YYYY-MM-DD hh:mm:ss A z", "2023-08-13 06:23:32 AM UTC");
+    try expectFmt(time_0, "YYYY-MM-DD hh:mm:ss A z", "2023-08-13 06:23:32 AM +0800");
 }
 
 test "addDate" {
     const ii_0: i128 = 1691879007511594906;
-    var time_0 = Time.fromNanoTimestamp(ii_0).setLoc(Location.fixed(8));
+    var time_0 = Time.fromNanoTimestamp(ii_0).setLoc(Location.fixed(480));
 
-    try expectFmt(time_0, "YYYY-MM-DD hh:mm:ss A z", "2023-08-13 06:23:27 AM UTC");
+    try expectFmt(time_0, "YYYY-MM-DD hh:mm:ss A z", "2023-08-13 06:23:27 AM +0800");
     
     time_0 = time_0.addDate(1, 2, 5);
-    try expectFmt(time_0, "YYYY-MM-DD hh:mm:ss A z", "2024-10-18 06:23:27 AM UTC");
+    try expectFmt(time_0, "YYYY-MM-DD hh:mm:ss A z", "2024-10-18 06:23:27 AM +0800");
 }
 
 test "Duration" {
@@ -2009,7 +2111,7 @@ test "Duration" {
 
 test "epochSeconds" {
     const ii_0: i128 = 1691879007511594906;
-    var time_0 = Time.fromNanoTimestamp(ii_0).setLoc(Location.fixed(8));
+    var time_0 = Time.fromNanoTimestamp(ii_0).setLoc(Location.fixed(480));
     
     const es = time_0.epochSeconds();
     const epochDay = es.getEpochDay();
@@ -2053,10 +2155,10 @@ test "add Years" {
 
 test "compare" {
     const ii_0: i128 = 1691879007511594906;
-    const time_0 = Time.fromNanoTimestamp(ii_0).setLoc(Location.fixed(8));
+    const time_0 = Time.fromNanoTimestamp(ii_0).setLoc(Location.fixed(480));
 
     const ii_1: i128 = 1691879007517594906;
-    const time_1 = Time.fromNanoTimestamp(ii_1).setLoc(Location.fixed(8));
+    const time_1 = Time.fromNanoTimestamp(ii_1).setLoc(Location.fixed(480));
 
     try testing.expectFmt("-1", "{d}", .{time_0.compare(time_1)});
     try testing.expectFmt("1", "{d}", .{time_1.compare(time_0)});
@@ -2065,8 +2167,8 @@ test "compare" {
 }
 
 test "time sub" {
-    const time_0 = Time.fromDatetime(2023, 8, 13, 6, 23, 27, 12, Location.fixed(8));
-    const time_1 = Time.fromDatetime(2023, 8, 13, 6, 25, 27, 12, Location.fixed(8));
+    const time_0 = Time.fromDatetime(2023, 8, 13, 6, 23, 27, 12, Location.fixed(480));
+    const time_1 = Time.fromDatetime(2023, 8, 13, 6, 25, 27, 12, Location.fixed(480));
 
     const time_sub_1 = time_0.sub(time_1);
     try testing.expectFmt("-2m0s", "{s}", .{time_sub_1.string()});
@@ -2077,7 +2179,7 @@ test "time sub" {
 }
 
 test "time until and since" {
-    const time_1 = Time.fromDatetime(2023, 8, 13, 6, 25, 27, 12, Location.fixed(8));
+    const time_1 = Time.fromDatetime(2023, 8, 13, 6, 25, 27, 12, Location.fixed(480));
 
     const time_since = until(time_1);
     try testing.expect(time_since.nanoseconds() < 0);
@@ -2087,22 +2189,24 @@ test "time until and since" {
 }
 
 test "Location fixed name" {
-    const loc_8 = Location.fixed(8);
-    const loc_fu8 = Location.fixed(-8);
+    const loc_8 = Location.fixed(480);
+    const loc_fu8 = Location.fixed(-480);
     const loc_fu0 = Location.fixed(0);
 
-    try testing.expectFmt("+8", "{s}", .{loc_8.string()});
-    try testing.expectFmt("-8", "{s}", .{loc_fu8.string()});
-    try testing.expectFmt("+0", "{s}", .{loc_fu0.string()});
+    try testing.expectFmt("+0800", "{s}", .{loc_8.string()});
+    try testing.expectFmt("-0800", "{s}", .{loc_fu8.string()});
+    try testing.expectFmt("+0000", "{s}", .{loc_fu0.string()});
     
-    const loc_122 = Location.fixed(122);
-    const loc_fu122 = Location.fixed(-122);
-    try testing.expectFmt("+122", "{s}", .{loc_122.string()});
-    try testing.expectFmt("-122", "{s}", .{loc_fu122.string()});
+    const loc_22 = Location.fixed(22*60);
+    const loc_fu22 = Location.fixed(-22*60);
+    try testing.expectFmt("+2200", "{s}", .{loc_22.string()});
+    try testing.expectFmt("-2200", "{s}", .{loc_fu22.string()});
 
     const loc_utc = Location.utc();
     try testing.expectFmt("UTC", "{s}", .{loc_utc.string()});
-    
+
+    const loc_utc1 = Location.create(481, "UTC1");
+    try testing.expectFmt("UTC1", "{s}", .{loc_utc1.string()});
 }
 
 test "isDigit" {
@@ -2270,3 +2374,20 @@ test "getNumFromOrdinal" {
     try testing.expectFmt(" qqa", "{s}", .{num_5.string});
     
 }
+
+test "Location parse" {
+    const val_1 = "+0800";
+    const val_2 = "-0930";
+
+    const t_1 = try Location.parse(val_1);
+    try testing.expectFmt("28800", "{d}", .{t_1.offset});
+    try testing.expectFmt("+0800", "{s}", .{t_1.string()});
+    try testing.expectFmt("+08:00", "{s}", .{t_1.offsetFormatString()});
+    
+    const t_2 = try Location.parse(val_2);
+    try testing.expectFmt("-34200", "{d}", .{t_2.offset});
+    try testing.expectFmt("-0930", "{s}", .{t_2.string()});
+    try testing.expectFmt("-09:30", "{s}", .{t_2.offsetFormatString()});
+}
+
+
