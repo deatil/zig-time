@@ -26,9 +26,9 @@ pub const Location = struct {
     offset: i32,
     name: []const u8,
 
-    pub fn init(o: i32, name: []const u8) Location {
+    pub fn init(offset: i32, name: []const u8) Location {
         return .{
-            .offset = o,
+            .offset = offset,
             .name = name,
         };
     }
