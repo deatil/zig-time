@@ -1084,6 +1084,10 @@ pub const format = struct {
     pub const lll = ll ++ " " ++ LT;
     pub const LLLL = "dddd, " ++ LLL;
     pub const llll = "ddd, " ++ lll;
+
+    pub const date = "YYYY-MM-DD";
+    pub const time = "HH:mm:ss";
+    pub const date_time = "YYYY-MM-DD HH:mm:ss";
 };
 
 fn daysSinceeEpoch(year: isize) u64 {
@@ -2134,6 +2138,10 @@ comptime {
         .{ format.lll, "Apr 8, 2006 3:24 PM" },
         .{ format.LLLL, "Saturday, April 8, 2006 3:24 PM" },
         .{ format.llll, "Sat, Apr 8, 2006 3:24 PM" },
+
+        .{ format.date, "2006-04-08" },
+        .{ format.time, "15:24:12" },
+        .{ format.date_time, "2006-04-08 15:24:12" },
     });
 
     testHarness(1144509852789, &.{.{ "YYYYMM", "200604" }});
@@ -2565,6 +2573,54 @@ test "time parse and setLoc"  {
 
     const dd_13 = try Time.parse("YYYY-MMMM-Do hh:m:s a z", "2023-August-12th 03:23:27 pm MST");
     try testing.expectFmt("1691879007", "{d}", .{dd_13.timestamp()});
+
+    // ============
+
+    const time_2_1 = Time.fromTimestamp(ii_1).setLoc(Location.fixed(480));
+    try expectFmt(time_2_1, "YYYY-MM-DD HH:mm:ss Z", "2023-08-13 06:23:27 +08:00");
+ 
+    const dd_2_1 = try Time.parse("YYYY-MM-DD HH:mm:ss Z", "2023-08-13 06:23:27 +08:00");
+    try testing.expectFmt("1691879007", "{d}", .{dd_2_1.timestamp()});
+
+    // ============
+
+    const time_2_2 = Time.fromTimestamp(ii_1).setLoc(Location.fixed(-480));
+    try expectFmt(time_2_2, "YYYY-MM-DD HH:mm:ss Z", "2023-08-12 14:23:27 -08:00");
+ 
+    const dd_2_2 = try Time.parse("YYYY-MM-DD HH:mm:ss Z", "2023-08-12 14:23:27 -08:00");
+    try testing.expectFmt("1691879007", "{d}", .{dd_2_2.timestamp()});
+
+    // ============
+
+    const time_2_3 = Time.fromTimestamp(ii_1).setLoc(Location.fixed(210));
+    try expectFmt(time_2_3, "YYYY-MM-DD HH:mm:ss Z", "2023-08-13 01:53:27 +03:30");
+ 
+    const dd_2_3 = try Time.parse("YYYY-MM-DD HH:mm:ss Z", "2023-08-13 01:53:27 +03:30");
+    try testing.expectFmt("1691879007", "{d}", .{dd_2_3.timestamp()});
+
+    // ============
+
+    const time_3_1 = Time.fromTimestamp(ii_1).setLoc(Location.fixed(480));
+    try expectFmt(time_3_1, "YYYY-MM-DD HH:mm:ss ZZ", "2023-08-13 06:23:27 +0800");
+ 
+    const dd_3_1 = try Time.parse("YYYY-MM-DD HH:mm:ss ZZ", "2023-08-13 06:23:27 +0800");
+    try testing.expectFmt("1691879007", "{d}", .{dd_3_1.timestamp()});
+
+    // ============
+
+    const time_3_2 = Time.fromTimestamp(ii_1).setLoc(Location.fixed(-480));
+    try expectFmt(time_3_2, "YYYY-MM-DD HH:mm:ss ZZ", "2023-08-12 14:23:27 -0800");
+ 
+    const dd_3_2 = try Time.parse("YYYY-MM-DD HH:mm:ss ZZ", "2023-08-12 14:23:27 -0800");
+    try testing.expectFmt("1691879007", "{d}", .{dd_3_2.timestamp()});
+
+    // ============
+
+    const time_3_3 = Time.fromTimestamp(ii_1).setLoc(Location.fixed(210));
+    try expectFmt(time_3_3, "YYYY-MM-DD HH:mm:ss ZZ", "2023-08-13 01:53:27 +0330");
+ 
+    const dd_3_3 = try Time.parse("YYYY-MM-DD HH:mm:ss ZZ", "2023-08-13 01:53:27 +0330");
+    try testing.expectFmt("1691879007", "{d}", .{dd_3_3.timestamp()});
 
 }
 
