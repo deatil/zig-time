@@ -1,7 +1,7 @@
 .{
     .name = "zig-time",
     .description = "A time lib with zig.",
-    .version = "1.0.5",
+    .version = "1.0.6",
     .paths = .{
         "build.zig",
         "build.zig.zon",

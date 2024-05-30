@@ -26,16 +26,16 @@ pub const Location = struct {
     offset: i32,
     name: []const u8,
 
-    pub fn init(o: i32, n: []const u8) Location {
+    pub fn init(o: i32, name: []const u8) Location {
         return .{
             .offset = o,
-            .name = n,
+            .name = name,
         };
     }
 
-    pub fn create(offset: i32, n: []const u8) Location {
+    pub fn create(offset: i32, name: []const u8) Location {
         const new_offset = offset * time.s_per_min;
-        return init(new_offset, n);
+        return init(new_offset, name);
     }
     
     pub fn utc() Location {
@@ -58,7 +58,8 @@ pub const Location = struct {
 
         return init(new_offset, name);
     }
-    
+
+    // if name.len > 0 return name or offsetString
     pub fn string(self: Self) []const u8 {
         if (self.name.len > 0) {
             return self.name;
@@ -67,12 +68,14 @@ pub const Location = struct {
         const o = self.offset;
         return self.fixedName(o, false);
     }
-    
+
+    // eg: +0800
     pub fn offsetString(self: Self) []const u8 {
         const o = self.offset;
         return self.fixedName(o, false);
     }
-    
+
+    // eg: +08:00
     pub fn offsetFormatString(self: Self) []const u8 {
         const o = self.offset;
         return self.fixedName(o, true);
@@ -1073,7 +1076,7 @@ pub const FormatSeq = enum {
     }
 };
 
-pub const format = struct {
+pub const Format = struct {
     pub const LT = "h:mm A";
     pub const LTS = "h:mm:ss A";
     pub const L = "MM/DD/YYYY";
@@ -1249,8 +1252,8 @@ pub const Duration = struct {
     pub const Minute = init(60 * Second.value);
     pub const Hour = init(60 * Minute.value);
 
-    const minDuration = init(-1 << 63);
-    const maxDuration = init((1 << 63) - 1);
+    pub const minDuration = init(-1 << 63);
+    pub const maxDuration = init((1 << 63) - 1);
 
     // fmtFrac formats the fraction of v/10**prec (e.g., ".12345") into the
     // tail of buf, omitting trailing zeros. It omits the decimal
@@ -1467,7 +1470,6 @@ const normRes = struct {
 // norm returns nhi, nlo such that
 //  hi * base + lo == nhi * base + nlo
 //  0 <= nlo < base
-
 fn norm(i: isize, o: isize, base: isize) normRes {
     var hi = i;
     var lo = o;
@@ -2128,20 +2130,20 @@ comptime {
         .{ "x", "1144509852789" },
         .{ "X", "1144509852" },
 
-        .{ format.LT, "3:24 PM" },
-        .{ format.LTS, "3:24:12 PM" },
-        .{ format.L, "04/08/2006" },
-        .{ format.l, "4/8/2006" },
-        .{ format.LL, "April 8, 2006" },
-        .{ format.ll, "Apr 8, 2006" },
-        .{ format.LLL, "April 8, 2006 3:24 PM" },
-        .{ format.lll, "Apr 8, 2006 3:24 PM" },
-        .{ format.LLLL, "Saturday, April 8, 2006 3:24 PM" },
-        .{ format.llll, "Sat, Apr 8, 2006 3:24 PM" },
+        .{ Format.LT, "3:24 PM" },
+        .{ Format.LTS, "3:24:12 PM" },
+        .{ Format.L, "04/08/2006" },
+        .{ Format.l, "4/8/2006" },
+        .{ Format.LL, "April 8, 2006" },
+        .{ Format.ll, "Apr 8, 2006" },
+        .{ Format.LLL, "April 8, 2006 3:24 PM" },
+        .{ Format.lll, "Apr 8, 2006 3:24 PM" },
+        .{ Format.LLLL, "Saturday, April 8, 2006 3:24 PM" },
+        .{ Format.llll, "Sat, Apr 8, 2006 3:24 PM" },
 
-        .{ format.date, "2006-04-08" },
-        .{ format.time, "15:24:12" },
-        .{ format.date_time, "2006-04-08 15:24:12" },
+        .{ Format.date, "2006-04-08" },
+        .{ Format.time, "15:24:12" },
+        .{ Format.date_time, "2006-04-08 15:24:12" },
     });
 
     testHarness(1144509852789, &.{.{ "YYYYMM", "200604" }});
