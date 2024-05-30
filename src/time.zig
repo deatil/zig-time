@@ -9,16 +9,16 @@ const time = std.time;
 const epoch = time.epoch;
 
 // timezone type list
-const GMT = Location.create(0, "GMT");
-const UTC = Location.create(0, "UTC");
-const CET = Location.create(60, "CET");
-const EET = Location.create(120, "EET");
-const MET = Location.create(210, "MET");
-const CTT = Location.create(480, "CTT");
-const CAT = Location.create(-60, "CAT");
-const EST = Location.create(-300, "EST");
-const MST = Location.create(-420, "MST");
-const CST = Location.create(-480, "CST");
+pub const GMT = Location.create(0, "GMT");
+pub const UTC = Location.create(0, "UTC");
+pub const CET = Location.create(60, "CET");
+pub const EET = Location.create(120, "EET");
+pub const MET = Location.create(210, "MET");
+pub const CTT = Location.create(480, "CTT");
+pub const CAT = Location.create(-60, "CAT");
+pub const EST = Location.create(-300, "EST");
+pub const MST = Location.create(-420, "MST");
+pub const CST = Location.create(-480, "CST");
 
 pub const Location = struct {
     const Self = @This();
@@ -326,14 +326,6 @@ pub const Time = struct {
     }
     
     // for format time output
-
-    fn nsec(self: Self) i32 {
-        if (self.ns == 0) {
-            return 0;
-        }
-        
-        return @as(i32, @intCast((self.ns - (self.unixSec() * time.ns_per_s)) & nsec_mask));
-    }
     
     fn sec(self: Self) i64 {
         return @divTrunc(@as(isize, @intCast(self.ns)), time.ns_per_s);
@@ -342,7 +334,15 @@ pub const Time = struct {
     fn unixSec(self: Self) i64 {
         return self.sec();
     }
-    
+
+    fn nsec(self: Self) i32 {
+        if (self.ns == 0) {
+            return 0;
+        }
+        
+        return @as(i32, @intCast((self.ns - (self.unixSec() * time.ns_per_s)) & nsec_mask));
+    }
+ 
     pub fn unix(self: Self) i64 {
         return self.unixSec();
     }
@@ -434,6 +434,21 @@ pub const Time = struct {
         );
     }
 
+    pub fn endOfHour(self: Self) Self {
+        const d = self.date();
+        const c = self.clock();
+        return fromDatetime(
+            d.year,
+            @as(isize, @intCast(@intFromEnum(d.month))),
+            d.day,
+            c.hour,
+            59,
+            59,
+            999,
+            self.loc,
+        );
+    }
+
     pub fn beginOfDay(self: Self) Self {
         const d = self.date();
         return fromDatetime(
@@ -448,6 +463,20 @@ pub const Time = struct {
         );
     }
 
+    pub fn endOfDay(self: Self) Self {
+        const d = self.date();
+        return fromDatetime(
+            d.year,
+            @as(isize, @intCast(@intFromEnum(d.month))),
+            d.day,
+            23,
+            59,
+            59,
+            999,
+            self.loc,
+        );
+    }
+    
     pub fn beginOfWeek(self: Self) Self {
         var week_day = @as(isize, @intCast(@intFromEnum(self.weekday())));
         if (week_day == 0) {
@@ -468,6 +497,21 @@ pub const Time = struct {
         );
     }
 
+    pub fn endOfWeek(self: Self) Self {
+        const dd = self.beginOfWeek().addDate(0, 0, 6); 
+        const d = dd.date();
+        return fromDatetime(
+            d.year,
+            @as(isize, @intCast(@intFromEnum(d.month))),
+            d.day,
+            23,
+            59,
+            59,
+            999,
+            self.loc,
+        );
+    }
+    
     pub fn beginOfMonth(self: Self) Self {
         const d = self.date();
         return fromDatetime(
@@ -2383,16 +2427,31 @@ comptime {
         .{ "YYYY-MM-DD HH:mm:ss", "2023-08-13 06:00:00" },
     });
 
+    const t_1_1 = t.endOfHour();
+    testHarness(t_1_1.milliTimestamp(), &.{
+        .{ "YYYY-MM-DD HH:mm:ss", "2023-08-13 06:59:59" },
+    });
+    
     const t_2 = t.beginOfDay();
     testHarness(t_2.milliTimestamp(), &.{
         .{ "YYYY-MM-DD HH:mm:ss", "2023-08-13 00:00:00" },
     });
-
+    
+    const t_2_1 = t.endOfDay();
+    testHarness(t_2_1.milliTimestamp(), &.{
+        .{ "YYYY-MM-DD HH:mm:ss", "2023-08-13 23:59:59" },
+    });
+    
     const t_3 = time_2.beginOfWeek();
     testHarness(t_3.milliTimestamp(), &.{
         .{ "YYYY-MM-DD HH:mm:ss", "2023-08-14 00:00:00" },
     });
-
+    
+    const t_3_1 = time_2.endOfWeek();
+    testHarness(t_3_1.milliTimestamp(), &.{
+        .{ "YYYY-MM-DD HH:mm:ss", "2023-08-20 23:59:59" },
+    });
+    
     const t_4 = time_2.beginOfMonth();
     testHarness(t_4.milliTimestamp(), &.{
         .{ "YYYY-MM-DD HH:mm:ss", "2023-08-01 00:00:00" },
