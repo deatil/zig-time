@@ -1,6 +1,6 @@
 ## Zig-time 
 
-zig-time is a time lib.
+A date and time parse and format library for Zig.
 
 
 ### Env
