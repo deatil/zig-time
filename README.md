@@ -8,6 +8,32 @@ A date and time parse and format library for Zig.
  - Zig >= 0.12
 
 
+### Adding zig-time as a dependency
+
+Add the dependency to your project:
+
+```sh
+zig fetch --save=zig-time https://github.com/deatil/zig-time/archive/refs/tags/1.0.5.tar.gz
+```
+
+And the following to your `build.zig` file:
+
+```zig
+    const zig_time = b.dependency("zig-time", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.root_module.addImport("zig-time", zig_time.module("zig-time"));
+    exe.linkLibrary(zig_time.artifact("zig-time"));
+```
+
+The `zig-time` structure can be imported in your application with:
+
+```zig
+const zig_time = @import("zig-time");
+```
+
+
 ### Get Starting
 
 ~~~zig

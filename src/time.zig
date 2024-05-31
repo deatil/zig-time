@@ -1,25 +1,14 @@
 const std = @import("std");
-const testing = std.testing;
-
-const ctx = @This();
-
-const string = []const u8;
 const mem = std.mem;
 const time = std.time;
 const epoch = time.epoch;
+const testing = std.testing;
 
-// timezone type list
-pub const GMT = Location.create(0, "GMT");
-pub const UTC = Location.create(0, "UTC");
-pub const CET = Location.create(60, "CET");
-pub const EET = Location.create(120, "EET");
-pub const MET = Location.create(210, "MET");
-pub const CTT = Location.create(480, "CTT");
-pub const CAT = Location.create(-60, "CAT");
-pub const EST = Location.create(-300, "EST");
-pub const MST = Location.create(-420, "MST");
-pub const CST = Location.create(-480, "CST");
+const string = []const u8;
 
+const ctx = @This();
+
+// timezone struct
 pub const Location = struct {
     const Self = @This();
     
@@ -59,7 +48,7 @@ pub const Location = struct {
         return init(new_offset, name);
     }
 
-    // if name.len > 0 return name or offsetString
+    // if name.len > 0 return name, or return offset string
     pub fn string(self: Self) []const u8 {
         if (self.name.len > 0) {
             return self.name;
@@ -238,18 +227,15 @@ pub const Time = struct {
             unix_value -= @as(i64, @intCast(loc.offset));
         }
 
-        const ii: i128 = @as(i128, @intCast(unix_value)) * time.ns_per_s;
-        const tt = @as(i128, @intCast(ii + @as(i128, @intCast(v_nsec))));
+        const uv: i128 = @as(i128, @intCast(unix_value)) * time.ns_per_s;
+        const ns = @as(i128, @intCast(uv + @as(i128, @intCast(v_nsec))));
 
-        return Time{
-            .ns = tt,
-            .loc = loc,
-        };
+        return init(ns, loc);
     }
 
     pub fn now() Time {
         const ts = time.nanoTimestamp();
-        return Time.fromNanoTimestamp(ts);
+        return fromNanoTimestamp(ts);
     }
 
     pub fn utc(self: Self) Self {
@@ -1093,6 +1079,49 @@ pub const Format = struct {
     pub const date_time = "YYYY-MM-DD HH:mm:ss";
 };
 
+// timezone type list
+pub const GMT = Location.create(0, "GMT");
+pub const UTC = Location.create(0, "UTC");
+pub const CET = Location.create(60, "CET");
+pub const EET = Location.create(120, "EET");
+pub const MET = Location.create(210, "MET");
+pub const CTT = Location.create(480, "CTT");
+pub const CAT = Location.create(-60, "CAT");
+pub const EST = Location.create(-300, "EST");
+pub const MST = Location.create(-420, "MST");
+pub const CST = Location.create(-480, "CST");
+
+// new Time from date data
+pub fn date(
+    year: isize,
+    month: isize,
+    day: isize,
+    hour: isize,
+    min: isize,
+    sec: isize,
+    nsec: isize,
+    loc: Location,
+) Time {
+    return Time.fromDatetime(year, month, day, hour, min, sec, nsec, loc);
+}
+
+// now time
+pub fn now() Time {
+    return Time.now();
+}
+
+// Since returns the time elapsed since t.
+// It is shorthand for time.now().sub(t).
+pub fn since(t: Time) Duration {
+	return now().sub(t);
+}
+
+// Until returns the duration until t.
+// It is shorthand for t.sub(time.now()).
+pub fn until(t: Time) Duration {
+	return t.sub(now());
+}
+
 fn daysSinceeEpoch(year: isize) u64 {
     var y = @as(u64, @intCast(@as(i64, @intCast(year)) - absolute_zero_year));
 
@@ -1199,17 +1228,18 @@ fn absWeekday(abs: u64) Weekday {
     return @as(Weekday, @enumFromInt(@as(usize, @intCast(w))));
 }
 
-const fracRes = struct {
+const FracRes = struct {
     nw: usize,
     nv: u64,
 };
 
-fn fmtFrac(buf: []u8, value: u64, prec: usize) fracRes {
+fn fmtFrac(buf: []u8, value: u64, prec: usize) FracRes {
     // Omit trailing zeros up to and including decimal point.
     var w = buf.len;
     var v = value;
     var i: usize = 0;
     var print: bool = false;
+    
     while (i < prec) : (i += 1) {
         const digit = @mod(v, 10);
         print = print or digit != 0;
@@ -1219,11 +1249,16 @@ fn fmtFrac(buf: []u8, value: u64, prec: usize) fracRes {
         }
         v /= 10;
     }
+    
     if (print) {
         w -= 1;
         buf[w] = '.';
     }
-    return fracRes{ .nw = w, .nv = v };
+    
+    return .{ 
+        .nw = w, 
+        .nv = v,
+    };
 }
 
 fn fmtInt(buf: []u8, value: u64) usize {
@@ -1239,6 +1274,7 @@ fn fmtInt(buf: []u8, value: u64) usize {
             v /= 10;
         }
     }
+    
     return w;
 }
 
@@ -1458,11 +1494,16 @@ pub const Clock = struct {
         sec -= (hour * seconds_per_hour);
         const min = @divTrunc(sec, seconds_per_minute);
         sec -= (min * seconds_per_minute);
-        return Clock{ .hour = hour, .min = min, .sec = sec };
+        
+        return .{ 
+            .hour = hour, 
+            .min = min, 
+            .sec = sec,
+         };
     }
 };
 
-const normRes = struct {
+const NormRes = struct {
     hi: isize,
     lo: isize,
 };
@@ -1470,7 +1511,7 @@ const normRes = struct {
 // norm returns nhi, nlo such that
 //  hi * base + lo == nhi * base + nlo
 //  0 <= nlo < base
-fn norm(i: isize, o: isize, base: isize) normRes {
+fn norm(i: isize, o: isize, base: isize) NormRes {
     var hi = i;
     var lo = o;
     if (lo < 0) {
@@ -1478,12 +1519,17 @@ fn norm(i: isize, o: isize, base: isize) normRes {
         hi -= n;
         lo += (n * base);
     }
+    
     if (lo >= base) {
         const n = @divTrunc(lo, base);
         hi += n;
         lo -= (n * base);
     }
-    return normRes{ .hi = hi, .lo = lo };
+    
+    return .{ 
+        .hi = hi, 
+        .lo = lo,
+    };
 }
 
 const nsec_mask: u64 = (1 << 30) - 1;
@@ -1612,6 +1658,11 @@ fn printOrdinal(writer: anytype, num: u16) !void {
     });
 }
 
+const Number = struct {
+    value: isize,
+    string: []const u8,
+};
+
 fn getNumFromOrdinal(val: string) !Number {
     const n = try getNum3(val, false);
     const value = n.value;
@@ -1641,36 +1692,6 @@ fn printLongName(writer: anytype, index: u16, names: []const string) !void {
 fn wrap(val: u16, at: u16) u16 {
     const tmp = val % at;
     return if (tmp == 0) at else tmp;
-}
-
-pub fn date(
-    year: isize,
-    month: isize,
-    day: isize,
-    hour: isize,
-    min: isize,
-    sec: isize,
-    nsec: isize,
-    loc: Location,
-) Time {
-    return Time.fromDatetime(year, month, day, hour, min, sec, nsec, loc);
-}
-
-// now time
-pub fn now() Time {
-    return Time.now();
-}
-
-// Since returns the time elapsed since t.
-// It is shorthand for time.now().sub(t).
-pub fn since(t: Time) Duration {
-	return now().sub(t);
-}
-
-// Until returns the duration until t.
-// It is shorthand for t.sub(time.now()).
-pub fn until(t: Time) Duration {
-	return t.sub(now());
 }
 
 const SeqResut = struct {
@@ -1776,11 +1797,6 @@ fn lookup(tab: []const []const u8, val: []const u8) !usize {
     
     return error.BadValue;
 }
-
-const Number = struct {
-    value: isize,
-    string: []const u8,
-};
 
 // getnum parses s[0:1] or s[0:2] (fixed forces s[0:2])
 // as a decimal integer and returns the integer and the
