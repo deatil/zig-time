@@ -48,7 +48,7 @@ pub const Location = struct {
         return init(new_offset, name);
     }
 
-    // if name.len > 0 return name, or return offset string
+    /// if name.len > 0 return name, or return offset string
     pub fn string(self: Self) []const u8 {
         if (self.name.len > 0) {
             return self.name;
@@ -58,13 +58,13 @@ pub const Location = struct {
         return self.fixedName(o, false);
     }
 
-    // eg: +0800
+    /// eg: +0800
     pub fn offsetString(self: Self) []const u8 {
         const o = self.offset;
         return self.fixedName(o, false);
     }
 
-    // eg: +08:00
+    /// eg: +08:00
     pub fn offsetFormatString(self: Self) []const u8 {
         const o = self.offset;
         return self.fixedName(o, true);
@@ -124,13 +124,14 @@ pub const Location = struct {
 
 pub const Time = struct {
     const Self = @This();
-    
-    ns: i128,
+
+    // this is minute
+    value: i128,
     loc: Location,
 
     pub fn init(ns: i128, loc: Location) Time {
         return .{
-            .ns = ns,
+            .value = ns,
             .loc = loc,
         };
     }
@@ -238,10 +239,12 @@ pub const Time = struct {
         return fromNanoTimestamp(ts);
     }
 
+    // =====================
+
     pub fn utc(self: Self) Self {
         var cp = self;
 
-        cp.ns = self.ns;
+        cp.value = self.value;
         cp.loc = Location.utc();
         return cp;
     }
@@ -249,7 +252,7 @@ pub const Time = struct {
     pub fn setLoc(self: Self, loc: Location) Self {
         var cp = self;
 
-        cp.ns = self.ns;
+        cp.value = self.value;
         cp.loc = loc;
         return cp;
     }
@@ -262,62 +265,25 @@ pub const Time = struct {
     // =====================
     
     pub fn timestamp(self: Self) i64 {
-        return @as(i64, @intCast(@divFloor(self.ns, time.ns_per_s)));
+        return @as(i64, @intCast(@divFloor(self.value, time.ns_per_s)));
     }
     
     pub fn milliTimestamp(self: Self) i64 {
-        return @as(i64, @intCast(@divFloor(self.ns, time.ns_per_ms)));
+        return @as(i64, @intCast(@divFloor(self.value, time.ns_per_ms)));
     }
     
     pub fn microTimestamp(self: Self) i64 {
-        return @as(i64, @intCast(@divFloor(self.ns, time.ns_per_us)));
+        return @as(i64, @intCast(@divFloor(self.value, time.ns_per_us)));
     }
     
     pub fn nanoTimestamp(self: Self) i128 {
-        return self.ns;
+        return self.value;
     }
-
+    
     // =====================
-
-    // compare a is isZero
-    pub fn isZero(self: Self) bool {
-        return self.nanoTimestamp() == 0;
-    }
-    
-    // returns true if time self is after time u.
-    pub fn after(self: Self, u: Self) bool {
-        const ts = self.sec();
-        const us = u.sec();
-        return ts > us or (ts == us and self.nsec() > u.nsec());
-    }
-
-    // returns true if time self is before u.
-    pub fn before(self: Self, u: Self) bool {
-        const ts = self.sec();
-        const us = u.sec();
-        return (ts < us) or (ts == us and self.nsec() < u.nsec());
-    }
-    
-    pub fn equal(self: Self, other: Self) bool {
-        return self.nanoTimestamp() == other.nanoTimestamp();
-    }
-
-    // compare compares the time instant t with u. If t is before u, it returns -1;
-    // if t is after u, it returns +1; if they're the same, it returns 0.
-    pub fn compare(self: Self, other: Self) isize {
-        if (self.ns < other.ns) {
-            return -1;
-        } else if (self.ns > other.ns) {
-            return 1;
-        } else {
-            return 0;
-        }
-    }
-    
-    // for format time output
     
     fn sec(self: Self) i64 {
-        return @divTrunc(@as(isize, @intCast(self.ns)), time.ns_per_s);
+        return @divTrunc(@as(isize, @intCast(self.value)), time.ns_per_s);
     }
 
     fn unixSec(self: Self) i64 {
@@ -325,11 +291,11 @@ pub const Time = struct {
     }
 
     fn nsec(self: Self) i32 {
-        if (self.ns == 0) {
+        if (self.value == 0) {
             return 0;
         }
         
-        return @as(i32, @intCast((self.ns - (self.unixSec() * time.ns_per_s)) & nsec_mask));
+        return @as(i32, @intCast((self.value - (self.unixSec() * time.ns_per_s)) & nsec_mask));
     }
  
     pub fn unix(self: Self) i64 {
@@ -363,6 +329,11 @@ pub const Time = struct {
     pub fn day(self: Self) u9 {
         const d = self.date();
         return @as(u9, @intCast(d.day));
+    }
+    
+    pub fn yearDay(self: Self) u16 {
+        const d = absDate(self.abs(), false);
+        return @as(u16, @intCast(d.yday)) + 1;
     }
 
     /// clock returns the hour, minute, and second within the day specified by t.
@@ -400,13 +371,45 @@ pub const Time = struct {
     pub fn milliseconds(self: Self) i32 {
         return @divTrunc(self.nsec(), time.ns_per_ms);
     }
+
+    // =====================
+
+    // compare a is isZero
+    pub fn isZero(self: Self) bool {
+        return self.nanoTimestamp() == 0;
+    }
     
-    pub fn yearDay(self: Self) u16 {
-        const d = absDate(self.abs(), false);
-        return @as(u16, @intCast(d.yday)) + 1;
+    // returns true if time self is after time u.
+    pub fn after(self: Self, u: Self) bool {
+        const ts = self.sec();
+        const us = u.sec();
+        return ts > us or (ts == us and self.nsec() > u.nsec());
     }
 
-    // ========
+    // returns true if time self is before u.
+    pub fn before(self: Self, u: Self) bool {
+        const ts = self.sec();
+        const us = u.sec();
+        return (ts < us) or (ts == us and self.nsec() < u.nsec());
+    }
+    
+    pub fn equal(self: Self, other: Self) bool {
+        return self.nanoTimestamp() == other.nanoTimestamp();
+    }
+
+    // compare compares the time instant t with u. If t is before u, it returns -1;
+    // if t is after u, it returns +1; if they're the same, it returns 0.
+    pub fn compare(self: Self, other: Self) isize {
+        if (self.value < other.value) {
+            return -1;
+        } else if (self.value > other.value) {
+            return 1;
+        } else {
+            return 0;
+        }
+    }
+    
+    // =====================
 
     pub fn beginOfHour(self: Self) Self {
         const d = self.date();
@@ -520,7 +523,7 @@ pub const Time = struct {
             .add(Duration.init(-Duration.Second.value));
     }
     
-    // ========
+    // =====================
     
     /// returns the day of the week specified by self.
     pub fn weekday(self: Self) Weekday {
@@ -591,17 +594,17 @@ pub const Time = struct {
         };
     }
     
-    // =========
+    // =====================
 
     pub fn add(self: Self, d: Duration) Self {
         var cp = self;
-        cp.ns += @as(i128, @intCast(d.value));
+        cp.value += @as(i128, @intCast(d.value));
 
         return cp;
     }
 
     pub fn sub(self: Self, u: Self) Duration {
-        const d = Duration.init(@as(i64, @intCast(self.ns - u.ns)));
+        const d = Duration.init(@as(i64, @intCast(self.value - u.value)));
 
         if (u.add(d).equal(self)) {
             return d;
@@ -627,8 +630,70 @@ pub const Time = struct {
             self.loc,
         );
     }
+    
+    // =====================
 
-    // =========
+    /// this gt other
+    pub fn gt(self: Self, other: Self) bool {
+        return self.after(other);
+    }
+
+    /// this lt other
+    pub fn lt(self: Self, other: Self) bool {
+        return self.before(other);
+    }
+
+    /// this equal other
+    pub fn eq(self: Self, other: Self) bool {
+        return self.equal(other);
+    }
+
+    /// this not equal other
+    pub fn ne(self: Self, other: Self) bool {
+        return !self.eq(other);
+    }
+    
+    pub fn gte(self: Self, other: Self) bool {
+        return self.gt(other) or self.eq(other);
+    }
+    
+    pub fn lte(self: Self, other: Self) bool {
+        return self.lt(other) or self.eq(other);
+    }
+    
+    pub fn between(self: Self, start: Self, end: Self) bool {
+        if (self.gt(start) and self.lt(end)) {
+            return true;
+        }
+
+        return false;
+    }
+    
+    pub fn betweenIncluded(self: Self, start: Self, end: Self) bool {
+        if (self.gte(start) and self.lte(end)) {
+            return true;
+        }
+
+        return false;
+    }
+    
+    pub fn betweenIncludedStart(self: Self, start: Self, end: Self) bool {
+        if (self.gte(start) and self.lt(end)) {
+            return true;
+        }
+
+        return false;
+    }
+    
+    pub fn betweenIncludedEnd(self: Self, start: Self, end: Self) bool {
+        if (self.gt(start) and self.lte(end)) {
+            return true;
+        }
+
+        return false;
+    }
+    
+    // =====================
 
     pub fn parse(comptime layout: []const u8, value: []const u8) !Time {  
         const t = try parseInLocation(layout, value, Location.utc());
@@ -889,7 +954,7 @@ pub const Time = struct {
         );
     }
     
-    /// fmt is based on https://momentjs.com/docs/#/displaying/format/
+    /// format datetime to output string
     pub fn format(self: Self, comptime fmt: string, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;
 
@@ -1279,6 +1344,8 @@ fn fmtInt(buf: []u8, value: u64) usize {
 }
 
 pub const Duration = struct {
+    const Self = @This();
+    
     value: i64,
 
     pub const Nanosecond = init(1);
@@ -1300,7 +1367,7 @@ pub const Duration = struct {
         return Duration{ .value = v };
     }
 
-    pub fn string(self: Duration) []const u8 {
+    pub fn string(self: Self) []const u8 {
         var buf: [32]u8 = undefined;
         var w = buf.len;
         var u: u64 = undefined;
@@ -1374,17 +1441,17 @@ pub const Duration = struct {
     }
 
     /// nanoseconds returns the duration as an integer nanosecond count.
-    pub fn nanoseconds(self: Duration) i64 {
+    pub fn nanoseconds(self: Self) i64 {
         return self.value;
     }
 
-    // microseconds returns the duration as an integer microsecond count.
-    pub fn microseconds(self: Duration) i64 {
+    /// microseconds returns the duration as an integer microsecond count.
+    pub fn microseconds(self: Self) i64 {
         return @divTrunc(self.value, time.ns_per_us);
     }
 
-    // milliseconds returns the duration as an integer millisecond count.
-    pub fn milliseconds(self: Duration) i64 {
+    /// milliseconds returns the duration as an integer millisecond count.
+    pub fn milliseconds(self: Self) i64 {
         return @divTrunc(self.value, time.ns_per_ms);
     }
     
@@ -1398,21 +1465,21 @@ pub const Duration = struct {
     // differently.
 
     /// Seconds returns the duration as a floating point number of seconds.
-    pub fn seconds(self: Duration) f64 {
+    pub fn seconds(self: Self) f64 {
         const sec = @divTrunc(self.value, Second.value);
         const nsec = @mod(self.value, Second.value);
         return @as(f64, @floatFromInt(sec)) + @as(f64, @floatFromInt(nsec)) / 1e9;
     }
 
     /// Minutes returns the duration as a floating point number of minutes.
-    pub fn minutes(self: Duration) f64 {
+    pub fn minutes(self: Self) f64 {
         const min = @divTrunc(self.value, Minute.value);
         const nsec = @mod(self.value, Minute.value);
         return @as(f64, @floatFromInt(min)) + @as(f64, @floatFromInt(nsec)) / (60 * 1e9);
     }
 
-    // Hours returns the duration as a floating point number of hours.
-    pub fn hours(self: Duration) f64 {
+    /// Hours returns the duration as a floating point number of hours.
+    pub fn hours(self: Self) f64 {
         const hour = @divTrunc(self.value, Hour.value);
         const nsec = @mod(self.value, Hour.value);
         return @as(f64, @floatFromInt(hour)) + @as(f64, @floatFromInt(nsec)) / (60 * 60 * 1e9);
@@ -1420,27 +1487,27 @@ pub const Duration = struct {
 
     /// Truncate returns the result of rounding d toward zero to a multiple of m.
     /// If m <= 0, Truncate returns d unchanged.
-    pub fn truncate(self: Duration, m: Duration) Duration {
+    pub fn truncate(self: Self, m: Self) Duration {
         if (m.value <= 0) {
             return self;
         }
         return init(self.value - @mod(self.value, m.value));
     }
 
-    // lessThanHalf reports whether x+x < y but avoids overflow,
-    // assuming x and y are both positive (Duration is signed).
-    fn lessThanHalf(self: Duration, m: Duration) bool {
+    /// lessThanHalf reports whether x+x < y but avoids overflow,
+    /// assuming x and y are both positive (Duration is signed).
+    fn lessThanHalf(self: Self, m: Self) bool {
         const x = @as(u64, @intCast(self.value));
         return x + x < @as(u64, @intCast(m.value));
     }
 
-    // Round returns the result of rounding d to the nearest multiple of m.
-    // The rounding behavior for halfway values is to round away from zero.
-    // If the result exceeds the maximum (or minimum)
-    // value that can be stored in a Duration,
-    // Round returns the maximum (or minimum) duration.
-    // If m <= 0, Round returns d unchanged.
-    pub fn round(self: Duration, m: Duration) Duration {
+    /// Round returns the result of rounding d to the nearest multiple of m.
+    /// The rounding behavior for halfway values is to round away from zero.
+    /// If the result exceeds the maximum (or minimum)
+    /// value that can be stored in a Duration,
+    /// Round returns the maximum (or minimum) duration.
+    /// If m <= 0, Round returns d unchanged.
+    pub fn round(self: Self, m: Self) Duration {
         if (m.value <= 0) {
             return self;
         }
@@ -1472,7 +1539,7 @@ pub const Duration = struct {
         return maxDuration;
     }
 
-    pub fn abs(self: Duration) Duration {
+    pub fn abs(self: Self) Duration {
         if (self.value >= 0) {
             return self;
         } else if (self.value == minDuration.value) {
@@ -2213,8 +2280,10 @@ test "addDate" {
 
 test "Duration" {
     const dur = Duration.init(2 * Duration.Minute.value + 1 * Duration.Hour.value + 5 * Duration.Second.value);
+    const dur2 = Duration.init(-dur.value);
 
     try testing.expectFmt("1h2m5s", "{s}", .{dur.string()});
+    try testing.expectFmt("-1h2m5s", "{s}", .{dur2.string()});
     try testing.expectFmt("3725000000000", "{d}", .{dur.nanoseconds()});
     try testing.expectFmt("3725000000", "{d}", .{dur.microseconds()});
     try testing.expectFmt("3725000", "{d}", .{dur.milliseconds()});
@@ -2716,4 +2785,38 @@ test "switch" {
     try testing.expect(res);
 }
 
+test "compare all" {
+    const t_0 = Time.fromTimestamp(1330502962);
+    const t_1 = Time.fromTimestamp(1330502962);
+    const t_2 = Time.fromTimestamp(1330503962);
+    const t_3 = Time.fromTimestamp(1330515962);
+    
+    try testing.expect(t_2.gt(t_0));
+    try testing.expect(t_1.lt(t_2));
+    try testing.expect(t_0.eq(t_1));
+    try testing.expect(t_0.ne(t_2));
+
+    try testing.expect(t_2.gte(t_0));
+    try testing.expect(t_0.gte(t_1));
+
+    try testing.expect(t_1.lte(t_2));
+    try testing.expect(t_0.lte(t_1));
+
+    try testing.expect(t_2.between(t_1, t_3));
+    try testing.expect(!t_1.between(t_2, t_3));
+
+    try testing.expect(t_2.betweenIncluded(t_1, t_3));
+    try testing.expect(t_0.betweenIncluded(t_1, t_3));
+    try testing.expect(t_3.betweenIncluded(t_1, t_3));
+    try testing.expect(!t_1.betweenIncluded(t_2, t_3));
+
+    try testing.expect(t_2.betweenIncludedStart(t_1, t_3));
+    try testing.expect(t_1.betweenIncludedStart(t_1, t_3));
+    try testing.expect(!t_3.betweenIncludedStart(t_1, t_3));
+
+    try testing.expect(t_2.betweenIncludedEnd(t_1, t_3));
+    try testing.expect(t_3.betweenIncludedEnd(t_1, t_3));
+    try testing.expect(!t_1.betweenIncludedEnd(t_1, t_3));
+    
+}
 

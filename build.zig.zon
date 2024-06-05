@@ -1,7 +1,7 @@
 .{
     .name = "zig-time",
-    .description = "A time lib with zig.",
-    .version = "1.0.6",
+    .description = "A date and time parse and format library for Zig.",
+    .version = "1.0.7",
     .paths = .{
         "build.zig",
         "build.zig.zon",
