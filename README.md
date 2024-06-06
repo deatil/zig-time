@@ -13,7 +13,7 @@ A date and time parse and format library for Zig.
 Add the dependency to your project:
 
 ```sh
-zig fetch --save=zig-time https://github.com/deatil/zig-time/archive/refs/tags/1.0.7.tar.gz
+zig fetch --save=zig-time https://github.com/deatil/zig-time/archive/refs/tags/1.0.8.tar.gz
 ```
 
 And the following to your `build.zig` file:

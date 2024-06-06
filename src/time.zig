@@ -70,7 +70,7 @@ pub const Location = struct {
         return self.fixedName(o, true);
     }
     
-    pub fn fixedName(self: Self, offset: i32, is_format: bool) []const u8 {
+    fn fixedName(self: Self, offset: i32, is_format: bool) []const u8 {
         _ = self;
 
         var new_offset: u64 = 0;
@@ -125,7 +125,6 @@ pub const Location = struct {
 pub const Time = struct {
     const Self = @This();
 
-    // this is minute
     value: i128,
     loc: Location,
 
@@ -356,10 +355,9 @@ pub const Time = struct {
         return @as(u6, @intCast(d));
     }
 
-    /// returns the nanosecond offset within the second specified by self,
-    /// in the range [0, 999999999].
-    pub fn nanosecond(self: Self) i32 {
-        return self.nsec();
+    // milliseconds returns the duration as an integer millisecond count.
+    pub fn milliseconds(self: Self) i32 {
+        return @divTrunc(self.nsec(), time.ns_per_ms);
     }
 
     // microseconds returns the duration as an integer microsecond count.
@@ -367,11 +365,12 @@ pub const Time = struct {
         return @divTrunc(self.nsec(), time.ns_per_us);
     }
 
-    // milliseconds returns the duration as an integer millisecond count.
-    pub fn milliseconds(self: Self) i32 {
-        return @divTrunc(self.nsec(), time.ns_per_ms);
+    /// returns the nanosecond offset within the second specified by self,
+    /// in the range [0, 999999999].
+    pub fn nanosecond(self: Self) i32 {
+        return self.nsec();
     }
-
+    
     // =====================
 
     // compare a is isZero
@@ -436,7 +435,7 @@ pub const Time = struct {
             c.hour,
             59,
             59,
-            999,
+            999999999,
             self.loc,
         );
     }
@@ -464,7 +463,7 @@ pub const Time = struct {
             23,
             59,
             59,
-            999,
+            999999999,
             self.loc,
         );
     }
@@ -499,7 +498,7 @@ pub const Time = struct {
             23,
             59,
             59,
-            999,
+            999999999,
             self.loc,
         );
     }
@@ -520,7 +519,8 @@ pub const Time = struct {
 
     pub fn endOfMonth(self: Self) Self {
         return self.beginOfMonth().addDate(0, 1, 0)
-            .add(Duration.init(-Duration.Second.value));
+            .add(Duration.init(-Duration.Second.value))
+            .add(Duration.init(999999999*Duration.Nanosecond.value));
     }
     
     // =====================
@@ -584,12 +584,15 @@ pub const Time = struct {
             }
         }
 
-        return ISOWeek{ .year = d.year, .week = week };
+        return .{ 
+            .year = d.year, 
+            .week = week, 
+        };
     }
 
     //// seconds since epoch Oct 1, 1970 at 12:00 AM
     pub fn epochSeconds(self: Self) epoch.EpochSeconds {
-        return epoch.EpochSeconds{
+        return .{
             .secs = @as(u64, @intCast(self.sec())),
         };
     }
@@ -989,31 +992,31 @@ pub const Time = struct {
                 switch (tag) {
                     .MM => try writer.print("{:0>2}", .{months + 1}),
                     .M => try writer.print("{}", .{months + 1}),
-                    .Mo => try printOrdinal(writer, months + 1),
-                    .MMM => try printLongName(writer, months, &short_month_names),
-                    .MMMM => try printLongName(writer, months, &long_month_names),
+                    .Mo => try writeOrdinal(writer, months + 1),
+                    .MMM => try writeLongName(writer, months, &short_month_names),
+                    .MMMM => try writeLongName(writer, months, &long_month_names),
 
                     .Q => try writer.print("{}", .{months / 3 + 1}),
-                    .Qo => try printOrdinal(writer, months / 3 + 1),
+                    .Qo => try writeOrdinal(writer, months / 3 + 1),
 
                     .D => try writer.print("{}", .{days}),
-                    .Do => try printOrdinal(writer, days),
+                    .Do => try writeOrdinal(writer, days),
                     .DD => try writer.print("{:0>2}", .{days}),
 
                     .DDD => try writer.print("{}", .{self.yearDay()}),
-                    .DDDo => try printOrdinal(writer, self.yearDay()),
+                    .DDDo => try writeOrdinal(writer, self.yearDay()),
                     .DDDD => try writer.print("{:0>3}", .{self.yearDay()}),
 
                     .d => try writer.print("{}", .{@intFromEnum(self.weekday())}),
-                    .do => try printOrdinal(writer, @as(u16, @intCast(@intFromEnum(self.weekday())))),
+                    .do => try writeOrdinal(writer, @as(u16, @intCast(@intFromEnum(self.weekday())))),
                     .dd => try writer.writeAll(@tagName(self.weekday())[0..2]),
-                    .ddd => try printLongName(writer, @as(u16, @intCast(@intFromEnum(self.weekday()))), &short_day_names),
+                    .ddd => try writeLongName(writer, @as(u16, @intCast(@intFromEnum(self.weekday()))), &short_day_names),
                     .dddd => try writer.writeAll(@tagName(self.weekday())),
                     .e => try writer.print("{}", .{@intFromEnum(self.weekday())}),
                     .E => try writer.print("{}", .{@intFromEnum(self.weekday()) + 1}),
 
                     .w => try writer.print("{}", .{self.yearDay() / 7}),
-                    .wo => try printOrdinal(writer, self.yearDay() / 7),
+                    .wo => try writeOrdinal(writer, self.yearDay() / 7),
                     .ww => try writer.print("{:0>2}", .{self.yearDay() / 7}),
 
                     .Y => try writer.print("{}", .{years + 10000}),
@@ -1021,8 +1024,8 @@ pub const Time = struct {
                     .YYY => try writer.print("{}", .{years}),
                     .YYYY => try writer.print("{:0>4}", .{years}),
 
-                    .A => try printLongName(writer, hours / 12, &[_]string{ "AM", "PM" }),
-                    .a => try printLongName(writer, hours / 12, &[_]string{ "am", "pm" }),
+                    .A => try writeLongName(writer, hours / 12, &[_]string{ "AM", "PM" }),
+                    .a => try writeLongName(writer, hours / 12, &[_]string{ "am", "pm" }),
 
                     .H => try writer.print("{}", .{hours}),
                     .HH => try writer.print("{:0>2}", .{hours}),
@@ -1364,7 +1367,9 @@ pub const Duration = struct {
     // output bytes begin and the value v/10**prec.
 
     pub fn init(v: i64) Duration {
-        return Duration{ .value = v };
+        return .{ 
+            .value = v,
+        };
     }
 
     pub fn string(self: Self) []const u8 {
@@ -1383,8 +1388,10 @@ pub const Duration = struct {
             // Special case: if duration is smaller than a second,
             // use smaller units, like 1.2ms
             var prec: usize = 0;
+            
             w -= 1;
             buf[w] = 's';
+            
             w -= 1;
             if (u == 0) {
                 const s = "0s";
@@ -1403,6 +1410,7 @@ pub const Duration = struct {
                 prec = 6;
                 buf[w] = 'm';
             }
+            
             const r = fmtFrac(buf[0..w], u, prec);
             w = r.nw;
             u = r.nv;
@@ -1415,6 +1423,7 @@ pub const Duration = struct {
             u = r.nv;
             w = fmtInt(buf[0..w], @mod(u, 60));
             u /= 60;
+            
             // u is now integer minutes
             if (u > 0) {
                 w -= 1;
@@ -1491,6 +1500,7 @@ pub const Duration = struct {
         if (m.value <= 0) {
             return self;
         }
+        
         return init(self.value - @mod(self.value, m.value));
     }
 
@@ -1646,6 +1656,7 @@ pub const DateDetail = struct {
 
 fn absDate(abs: u64, full: bool) DateDetail {
     var details: DateDetail = undefined;
+    
     // Split into time and day.
     var d = abs / seconds_per_day;
 
@@ -1715,7 +1726,7 @@ fn absDate(abs: u64, full: bool) DateDetail {
     return details;
 }
 
-fn printOrdinal(writer: anytype, num: u16) !void {
+fn writeOrdinal(writer: anytype, num: u16) !void {
     try writer.print("{}", .{num});
     try writer.writeAll(switch (num) {
         1 => "st",
@@ -1723,6 +1734,10 @@ fn printOrdinal(writer: anytype, num: u16) !void {
         3 => "rd",
         else => "th",
     });
+}
+
+fn writeLongName(writer: anytype, index: u16, names: []const string) !void {
+    try writer.writeAll(names[index]);
 }
 
 const Number = struct {
@@ -1750,10 +1765,6 @@ fn getNumFromOrdinal(val: string) !Number {
     }
 
     return error.BadValue;
-}
-
-fn printLongName(writer: anytype, index: u16, names: []const string) !void {
-    try writer.writeAll(names[index]);
 }
 
 fn wrap(val: u16, at: u16) u16 {
@@ -1787,14 +1798,14 @@ fn nextSeq(fmt: []const u8) SeqResut {
     }
 
     if (next) |tag| {
-        return SeqResut{
+        return .{
             .seq = tag,
             .value = fmt[0..lock],
             .last = fmt[lock..],
         };
     }
 
-    return SeqResut{
+    return .{
         .seq = null,
         .value = fmt[0..1],
         .last = fmt[1..],
@@ -1878,14 +1889,14 @@ fn getNum(s: []const u8, fixed: bool) !Number {
             return error.BadData;
         }
         
-        return Number{
+        return .{
             .value = @as(isize, @intCast(s[0])) - '0',
             .string = s[1..],
         };
     }
     
     const n = (@as(isize, @intCast(s[0])) - '0') * 10 + (@as(isize, @intCast(s[1])) - '0');
-    return Number{
+    return .{
         .value = n,
         .string = s[2..],
     };
@@ -1905,7 +1916,7 @@ fn getNum3(s: []const u8, fixed: bool) !Number {
         return error.BadData;
     }
     
-    return Number{
+    return .{
         .value = n,
         .string = s[i..],
     };
@@ -1948,7 +1959,7 @@ fn parseTimezone(s: []const u8) !Number {
         oo = -oo;
     }
     
-    return Number{
+    return .{
         .value = oo,
         .string = str,
     };
@@ -2556,7 +2567,24 @@ comptime {
     testHarness(t_5.milliTimestamp(), &.{
         .{ "YYYY-MM-DD HH:mm:ss", "2023-08-31 23:59:59" },
     });
-      
+ 
+}
+
+test "time end nanosecond"  {
+    const time_2 = Time.fromDatetime(2023, 8, 16, 6, 23, 27, 12, Location.fixed(0));
+
+    const t_1_1 = time_2.endOfHour();
+    try testing.expectFmt("999999999", "{d}", .{t_1_1.nanosecond()});
+    
+    const t_2_1 = time_2.endOfDay();
+    try testing.expectFmt("999999999", "{d}", .{t_2_1.nanosecond()});
+    
+    const t_3_1 = time_2.endOfWeek();
+    try testing.expectFmt("999999999", "{d}", .{t_3_1.nanosecond()});
+    
+    const t_5 = time_2.endOfMonth();
+    try testing.expectFmt("999999999", "{d}", .{t_5.nanosecond()});
+    
 }
 
 test "time parse and setLoc"  {
