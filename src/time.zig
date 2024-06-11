@@ -10,11 +10,11 @@ const ctx = @This();
 
 // timezone struct
 pub const Location = struct {
-    const Self = @This();
-    
     offset: i32,
     name: []const u8,
 
+    const Self = @This();
+    
     pub fn init(offset: i32, name: []const u8) Location {
         return .{
             .offset = offset,
@@ -123,10 +123,10 @@ pub const Location = struct {
 };
 
 pub const Time = struct {
-    const Self = @This();
-
     value: i128,
     loc: Location,
+
+    const Self = @This();
 
     pub fn init(ns: i128, loc: Location) Time {
         return .{
@@ -1347,10 +1347,10 @@ fn fmtInt(buf: []u8, value: u64) usize {
 }
 
 pub const Duration = struct {
-    const Self = @This();
-    
     value: i64,
 
+    const Self = @This();
+    
     pub const Nanosecond = init(1);
     pub const Microsecond = init(1000 * Nanosecond.value);
     pub const Millisecond = init(1000 * Microsecond.value);
