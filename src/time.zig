@@ -55,7 +55,8 @@ pub const Location = struct {
         }
 
         const o = self.offset;
-        return self.fixedName(o, false);
+        const name = self.fixedName(o, false);
+        return @as([]const u8, name);
     }
 
     /// eg: +0800
@@ -112,7 +113,7 @@ pub const Location = struct {
         }
 
         const oo = buf[w..];
-        return oo[0..];
+        return @as([]const u8, oo[0..]);
     }
 
     pub fn parseName(str: []const u8) !i32 {
