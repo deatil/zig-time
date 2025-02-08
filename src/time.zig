@@ -144,21 +144,21 @@ pub const Time = struct {
     
     pub fn fromMicroTimestamp(t: i64) Time {
         const loc = Location.utc();
-        const ns = @as(i128, @intCast(t * time.ns_per_us));
+        const ns = @as(i128, @intCast(t)) * time.ns_per_us;
         
         return init(ns, loc);
     }
     
     pub fn fromMilliTimestamp(t: i64) Time {
         const loc = Location.utc();
-        const ns = @as(i128, @intCast(t * time.ns_per_ms));
+        const ns = @as(i128, @intCast(t)) * time.ns_per_ms;
         
         return init(ns, loc);
     }
     
     pub fn fromTimestamp(t: i64) Time {
         const loc = Location.utc();
-        const ns = @as(i128, @intCast(t * time.ns_per_s));
+        const ns = @as(i128, @intCast(t)) * time.ns_per_s;
         
         return init(ns, loc);
     }
@@ -283,7 +283,7 @@ pub const Time = struct {
     // =====================
     
     fn sec(self: Self) i64 {
-        return @divTrunc(@as(isize, @intCast(self.value)), time.ns_per_s);
+        return @as(i64, @intCast(@divTrunc(self.value, @as(i128, @intCast(time.ns_per_s)))));
     }
 
     fn unixSec(self: Self) i64 {
@@ -295,7 +295,7 @@ pub const Time = struct {
             return 0;
         }
         
-        return @as(i32, @intCast((self.value - (self.unixSec() * time.ns_per_s)) & nsec_mask));
+        return @as(i32, @intCast((self.value - (@as(i128, @intCast(self.unixSec())) * time.ns_per_s)) & nsec_mask));
     }
  
     pub fn unix(self: Self) i64 {
@@ -2737,6 +2737,11 @@ test "time parse and setLoc"  {
  
     const dd_3_3 = try Time.parse("YYYY-MM-DD HH:mm:ss ZZ", "2023-08-13 01:53:27 +0330");
     try testing.expectFmt("1691879007", "{d}", .{dd_3_3.timestamp()});
+
+    // ============
+
+    const time_3_5 = Time.fromTimestamp(20000000000).utc();
+    try expectFmt(time_3_5, "YYYY-MM-DD HH:mm:ss ZZ", "2603-10-11 11:33:20 +0000");
 
 }
 
