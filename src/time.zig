@@ -913,6 +913,20 @@ pub const Time = struct {
                         val = n.string;
                     },
 
+                    .SSSS, .SSSSS, .SSSSSS => {
+                        const n = try getNumN(6, val, false);
+                        parsed_nsec = n.value;
+                        
+                        val = n.string;
+                    },
+
+                    .SSSSSSS, .SSSSSSSS, .SSSSSSSSS => {
+                        const n = try getNumN(9, val, false);
+                        parsed_nsec = n.value;
+                        
+                        val = n.string;
+                    },
+
                     .z => {
                         if (val.len < 3) {
                             return error.BadValue;
@@ -1000,8 +1014,10 @@ pub const Time = struct {
         const hours = self.hour();
         const minutes = self.minute();
         const seconds = self.second(); 
-        const ms = @as(u16, @intCast(@divTrunc(self.nanosecond(), time.ns_per_ms)));
-        
+        const ms = @as(u16, @intCast(@divFloor(self.nanosecond(), time.ns_per_ms)));
+        const us = @as(u32, @intCast(@divFloor(self.nanosecond(), time.ns_per_us)));
+        const ns = @as(u32, @intCast(self.nanosecond()));
+ 
         var next: ?FormatSeq = null;
         var newFmt = fmt;
         while (newFmt.len > 0) {
@@ -1065,6 +1081,12 @@ pub const Time = struct {
                     .S => try writer.print("{}", .{ms / 100}),
                     .SS => try writer.print("{:0>2}", .{ms / 10}),
                     .SSS => try writer.print("{:0>3}", .{ms}),
+                    .SSSS => try writer.print("{d:0>4}", .{us / 100}),
+                    .SSSSS => try writer.print("{d:0>5}", .{us / 10}),
+                    .SSSSSS => try writer.print("{d:0>6}", .{us}),
+                    .SSSSSSS => try writer.print("{d:0>7}", .{ns / 100}),
+                    .SSSSSSSS => try writer.print("{d:0>8}", .{ns / 10}),
+                    .SSSSSSSSS => try writer.print("{d:0>9}", .{ns}),
 
                     .z => {
                         const timezone = tz.string();
@@ -1141,6 +1163,12 @@ pub const FormatSeq = enum {
     S, // 0 1 ... 8 9 (second fraction)
     SS, // 00 01 ... 98 99
     SSS, // 000 001 ... 998 999
+    SSSS, // 0000
+    SSSSS, // 00000
+    SSSSSS, // 000000
+    SSSSSSS, // 0000000
+    SSSSSSSS, // 00000000
+    SSSSSSSSS, // 000000000
     z, // EST CST ... MST PST
     Z, // -07:00 -06:00 ... +06:00 +07:00
     ZZ, // -0700 -0600 ... +0600 +0700
@@ -1804,10 +1832,10 @@ fn nextSeq(fmt: []const u8) SeqResut {
     var next: ?FormatSeq = null;
     var maxLen: usize = 0;
 
-    if (fmt.len < 4) {
+    if (fmt.len < 9) {
         maxLen = fmt.len;
     } else {
-        maxLen = 4;
+        maxLen = 9;
     }
     
     var i: usize = 1;
@@ -1935,6 +1963,23 @@ fn getNum3(s: []const u8, fixed: bool) !Number {
     }
     
     if (i == 0 or (fixed and i != 3)) {
+        return error.BadData;
+    }
+    
+    return .{
+        .value = n,
+        .string = s[i..],
+    };
+}
+
+fn getNumN(num: usize, s: []const u8, fixed: bool) !Number {
+    var n: isize = 0;
+    var i: usize = 0;
+    while (i < num and isDigit(s, i)) : (i += 1) {
+        n = n * 10 + @as(isize, @intCast(s[i] - '0'));
+    }
+    
+    if (i == 0 or (fixed and i != num)) {
         return error.BadData;
     }
     
@@ -2513,6 +2558,25 @@ test "getNum3" {
     
 }
 
+test "getNumN" {
+    const val_1 = "35hy00";
+    const val_2 = "378333j00";
+    const val_3 = "38956kj00";
+
+    const num_1 = try getNumN(5, val_1, false);
+    try testing.expectFmt("35", "{d}", .{num_1.value});
+    try testing.expectFmt("hy00", "{s}", .{num_1.string});
+    
+    const num_2 = try getNumN(5, val_2, false);
+    try testing.expectFmt("37833", "{d}", .{num_2.value});
+    try testing.expectFmt("3j00", "{s}", .{num_2.string});
+    
+    const num_3 = try getNumN(5, val_3, true);
+    try testing.expectFmt("38956", "{d}", .{num_3.value});
+    try testing.expectFmt("kj00", "{s}", .{num_3.string});
+    
+}
+
 test "parseNanoseconds" {
     const val_1 = ".123456789";
 
@@ -2768,12 +2832,47 @@ test "time parse and setLoc"  {
 
     const time_3_6 = Time.fromUnix(1691879007, 16918790).utc();
     try expectFmt(time_3_6, "YYYY-MM-DD HH:mm:ss.SSS ZZ", "2023-08-12 22:23:27.016 +0000");
+    try expectFmt(time_3_6, "YYYY-MM-DD HH:mm:ss.S", "2023-08-12 22:23:27.0");
+    try expectFmt(time_3_6, "YYYY-MM-DD HH:mm:ss.SS", "2023-08-12 22:23:27.01");
+    try expectFmt(time_3_6, "YYYY-MM-DD HH:mm:ss.SSS", "2023-08-12 22:23:27.016");
+    try expectFmt(time_3_6, "YYYY-MM-DD HH:mm:ss.SSSS", "2023-08-12 22:23:27.0169");
+    try expectFmt(time_3_6, "YYYY-MM-DD HH:mm:ss.SSSSSS", "2023-08-12 22:23:27.016918");
+    try expectFmt(time_3_6, "YYYY-MM-DD HH:mm:ss.SSSSSSS", "2023-08-12 22:23:27.0169187");
+    try expectFmt(time_3_6, "YYYY-MM-DD HH:mm:ss.SSSSSSSS", "2023-08-12 22:23:27.01691879");
+    try expectFmt(time_3_6, "YYYY-MM-DD HH:mm:ss.SSSSSSSSS", "2023-08-12 22:23:27.016918790");
 
     const time_3_61 = Time.fromUnix(1691879007, 16918790000).utc();
     try expectFmt(time_3_61, "YYYY-MM-DD HH:mm:ss.SSS ZZ", "2023-08-12 22:23:43.918 +0000");
 
     const time_3_62 = Time.fromUnix(1691879007, 16918790112).utc();
     try expectFmt(time_3_62, "YYYY-MM-DD HH:mm:ss.SSS ZZ", "2023-08-12 22:23:43.918 +0000");
+    try expectFmt(time_3_62, "YYYY-MM-DD HH:mm:ss.SSSSSS", "2023-08-12 22:23:43.918790");
+    try expectFmt(time_3_62, "YYYY-MM-DD HH:mm:ss.SSSSSSSSS", "2023-08-12 22:23:43.918790112");
+
+    var dd22 = try Time.parse("YYYY-MM-DD HH:mm:ss.SSSSSSSSS", "2023-08-12 22:23:27.016918790");
+    try testing.expectFmt("1691879007", "{d}", .{dd22.timestamp()});
+    try testing.expectFmt("16918790", "{d}", .{dd22.nanosecond()});
+
+    dd22 = try Time.parse("YYYY-MM-DD HH:mm:ss.SSSSSSSSS", "2023-08-12 22:23:27.918790112");
+    try testing.expectFmt("1691879007", "{d}", .{dd22.timestamp()});
+    try testing.expectFmt("918790112", "{d}", .{dd22.nanosecond()});
+
+    dd22 = try Time.parse("YYYY-MM-DD HH:mm:ss.SSSSSSSS", "2023-08-12 22:23:27.91879011");
+    try testing.expectFmt("91879011", "{d}", .{dd22.nanosecond()});
+    dd22 = try Time.parse("YYYY-MM-DD HH:mm:ss.SSSSSSS", "2023-08-12 22:23:27.9187901");
+    try testing.expectFmt("9187901", "{d}", .{dd22.nanosecond()});
+    dd22 = try Time.parse("YYYY-MM-DD HH:mm:ss.SSSSSS", "2023-08-12 22:23:27.918790");
+    try testing.expectFmt("918790", "{d}", .{dd22.nanosecond()});
+    dd22 = try Time.parse("YYYY-MM-DD HH:mm:ss.SSSSS", "2023-08-12 22:23:27.91879");
+    try testing.expectFmt("91879", "{d}", .{dd22.nanosecond()});
+    dd22 = try Time.parse("YYYY-MM-DD HH:mm:ss.SSSS", "2023-08-12 22:23:27.9187");
+    try testing.expectFmt("9187", "{d}", .{dd22.nanosecond()});
+    dd22 = try Time.parse("YYYY-MM-DD HH:mm:ss.SSS", "2023-08-12 22:23:27.918");
+    try testing.expectFmt("918", "{d}", .{dd22.nanosecond()});
+    dd22 = try Time.parse("YYYY-MM-DD HH:mm:ss.SS", "2023-08-12 22:23:27.91");
+    try testing.expectFmt("91", "{d}", .{dd22.nanosecond()});
+    dd22 = try Time.parse("YYYY-MM-DD HH:mm:ss.S", "2023-08-12 22:23:27.9");
+    try testing.expectFmt("9", "{d}", .{dd22.nanosecond()});
 
 }
 
