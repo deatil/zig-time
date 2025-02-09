@@ -162,6 +162,27 @@ pub const Time = struct {
         
         return init(ns, loc);
     }
+    
+    pub fn fromUnix(secs: i64, nsecs: i64) Time {
+        var seconds = secs;
+        var nseconds = nsecs;
+
+        if (nseconds < 0 or nseconds >= 1_000_000_000) {
+            const n = @divFloor(nseconds, 1_000_000_000);
+
+            seconds += n;
+            nseconds -= n * 1_000_000_000;
+
+            if (nseconds < 0) {
+                nseconds += 1_000_000_000;
+                seconds -= 1;
+            }
+        }
+
+        const ns = @as(i128, @intCast(seconds)) * time.ns_per_s + @as(i128, @intCast(nseconds));
+        
+        return fromNanoTimestamp(ns);
+    }
 
     pub fn fromDate(years: isize, months: isize, days: isize, loc: Location) Time {
         return fromDatetime(years, months, days, 0, 0, 0, 0, loc);
@@ -978,7 +999,7 @@ pub const Time = struct {
 
         const hours = self.hour();
         const minutes = self.minute();
-        const seconds = self.second();
+        const seconds = self.second(); 
         const ms = @as(u16, @intCast(@divTrunc(self.nanosecond(), time.ns_per_ms)));
         
         var next: ?FormatSeq = null;
@@ -2742,6 +2763,17 @@ test "time parse and setLoc"  {
 
     const time_3_5 = Time.fromTimestamp(20000000000).utc();
     try expectFmt(time_3_5, "YYYY-MM-DD HH:mm:ss ZZ", "2603-10-11 11:33:20 +0000");
+
+    // ============
+
+    const time_3_6 = Time.fromUnix(1691879007, 16918790).utc();
+    try expectFmt(time_3_6, "YYYY-MM-DD HH:mm:ss.SSS ZZ", "2023-08-12 22:23:27.016 +0000");
+
+    const time_3_61 = Time.fromUnix(1691879007, 16918790000).utc();
+    try expectFmt(time_3_61, "YYYY-MM-DD HH:mm:ss.SSS ZZ", "2023-08-12 22:23:43.918 +0000");
+
+    const time_3_62 = Time.fromUnix(1691879007, 16918790112).utc();
+    try expectFmt(time_3_62, "YYYY-MM-DD HH:mm:ss.SSS ZZ", "2023-08-12 22:23:43.918 +0000");
 
 }
 
