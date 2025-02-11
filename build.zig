@@ -17,8 +17,8 @@ pub fn build(b: *std.Build) void {
     // zig build [install]
     b.installArtifact(unit_tests);
 
-    // zig build -Dtest-filter="..." run_unit_test
+    // zig build -Dtest-filter="..." test
     const run_unit_tests = b.addRunArtifact(unit_tests);
-    const unit_test_step = b.step("unit_test", "Run unit tests");
+    const unit_test_step = b.step("test", "Run unit tests");
     unit_test_step.dependOn(&run_unit_tests.step);
 }
