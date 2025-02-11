@@ -5,7 +5,7 @@ A date and time parse and format library for Zig.
 
 ### Env
 
- - Zig >= 0.14
+ - Zig >= 0.14.0-dev.2851+b074fb7dd
 
 
 ### Adding zig-time as a dependency
@@ -16,15 +16,25 @@ Add the dependency to your project:
 zig fetch --save=zig-time git+https://github.com/deatil/zig-time#main
 ```
 
+or use local path to add dependency at `build.zig.zon` file
+
+```zig
+.{
+    .dependencies = .{
+        .@"zig-time" = .{
+            .path = "./lib/zig-time",
+        },
+        ...
+    },
+    ...
+}
+```
+
 And the following to your `build.zig` file:
 
 ```zig
-    const zig_time = b.dependency("zig-time", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    exe.root_module.addImport("zig-time", zig_time.module("zig-time"));
-    exe.linkLibrary(zig_time.artifact("zig-time"));
+    const zig_time_dep = b.dependency("zig-time", .{});
+    exe.root_module.addImport("zig-time", zig_time_dep.module("zig-time"));
 ```
 
 The `zig-time` structure can be imported in your application with:
