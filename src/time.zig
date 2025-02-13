@@ -168,7 +168,7 @@ pub const Time = struct {
         var nseconds = nsecs;
 
         if (nseconds < 0 or nseconds >= 1_000_000_000) {
-            const n = @divFloor(nseconds, 1_000_000_000);
+            const n = @divTrunc(nseconds, 1_000_000_000);
 
             seconds += n;
             nseconds -= n * 1_000_000_000;
@@ -286,15 +286,15 @@ pub const Time = struct {
     // =====================
     
     pub fn timestamp(self: Self) i64 {
-        return @as(i64, @intCast(@divFloor(self.value, time.ns_per_s)));
+        return @as(i64, @intCast(@divTrunc(self.value, time.ns_per_s)));
     }
     
     pub fn milliTimestamp(self: Self) i64 {
-        return @as(i64, @intCast(@divFloor(self.value, time.ns_per_ms)));
+        return @as(i64, @intCast(@divTrunc(self.value, time.ns_per_ms)));
     }
     
     pub fn microTimestamp(self: Self) i64 {
-        return @as(i64, @intCast(@divFloor(self.value, time.ns_per_us)));
+        return @as(i64, @intCast(@divTrunc(self.value, time.ns_per_us)));
     }
     
     pub fn nanoTimestamp(self: Self) i128 {
@@ -1014,8 +1014,8 @@ pub const Time = struct {
         const hours = self.hour();
         const minutes = self.minute();
         const seconds = self.second(); 
-        const ms = @as(u16, @intCast(@divFloor(self.nanosecond(), time.ns_per_ms)));
-        const us = @as(u32, @intCast(@divFloor(self.nanosecond(), time.ns_per_us)));
+        const ms = @as(u16, @intCast(@divTrunc(self.nanosecond(), time.ns_per_ms)));
+        const us = @as(u32, @intCast(@divTrunc(self.nanosecond(), time.ns_per_us)));
         const ns = @as(u32, @intCast(self.nanosecond()));
  
         var next: ?FormatSeq = null;
