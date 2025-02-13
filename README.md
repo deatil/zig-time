@@ -33,8 +33,8 @@ or use local path to add dependency at `build.zig.zon` file
 And the following to your `build.zig` file:
 
 ```zig
-    const zig_time_dep = b.dependency("zig-time", .{});
-    exe.root_module.addImport("zig-time", zig_time_dep.module("zig-time"));
+const zig_time_dep = b.dependency("zig-time", .{});
+exe.root_module.addImport("zig-time", zig_time_dep.module("zig-time"));
 ```
 
 The `zig-time` structure can be imported in your application with:

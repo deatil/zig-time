@@ -634,9 +634,9 @@ pub const Time = struct {
         if (u.add(d).equal(self)) {
             return d;
         } else if (self.before(u)) {
-            return Duration.minDuration;
+            return Duration.MinDuration;
         } else {
-            return Duration.maxDuration;
+            return Duration.MaxDuration;
         }
     } 
 
@@ -1228,6 +1228,11 @@ pub fn now() Time {
     return Time.now();
 }
 
+// use unix date to Time
+pub fn unix(sec: i64, nsec: i64) Time {
+    return Time.fromUnix(sec, nsec);
+}
+
 // Since returns the time elapsed since t.
 // It is shorthand for time.now().sub(t).
 pub fn since(t: Time) Duration {
@@ -1408,8 +1413,8 @@ pub const Duration = struct {
     pub const Minute = init(60 * Second.value);
     pub const Hour = init(60 * Minute.value);
 
-    pub const minDuration = init(-1 << 63);
-    pub const maxDuration = init((1 << 63) - 1);
+    pub const MinDuration = init(-1 << 63);
+    pub const MaxDuration = init((1 << 63) - 1);
 
     // fmtFrac formats the fraction of v/10**prec (e.g., ".12345") into the
     // tail of buf, omitting trailing zeros. It omits the decimal
@@ -1584,7 +1589,7 @@ pub const Duration = struct {
                 return init(d);
             }
             
-            return minDuration;
+            return MinDuration;
         }
 
         if (r.lessThanHalf(m)) {
@@ -1596,14 +1601,14 @@ pub const Duration = struct {
             return init(d);
         }
         
-        return maxDuration;
+        return MaxDuration;
     }
 
     pub fn abs(self: Self) Duration {
         if (self.value >= 0) {
             return self;
-        } else if (self.value == minDuration.value) {
-            return maxDuration;
+        } else if (self.value == MinDuration.value) {
+            return MaxDuration;
         } else {
             return Duration.init(-self.value);
         }
@@ -2385,7 +2390,7 @@ test "Duration" {
     const dur_5_2_abs = dur_5_2.abs();
     try testing.expectFmt("180000000000", "{d}", .{dur_5_2_abs.nanoseconds()});
 
-    const dur_5_3 = Duration.minDuration;
+    const dur_5_3 = Duration.MinDuration;
     const dur_5_3_abs = dur_5_3.abs();
     try testing.expectFmt("9223372036854775807", "{d}", .{dur_5_3_abs.nanoseconds()});
 
@@ -2829,6 +2834,18 @@ test "time parse and setLoc"  {
     try expectFmt(time_3_5, "YYYY-MM-DD HH:mm:ss ZZ", "2603-10-11 11:33:20 +0000");
 
     // ============
+
+    var time_unix = unix(1691879007, 16918790).utc();
+    try expectFmt(time_unix, "YYYY-MM-DD HH:mm:ss.SSS ZZ", "2023-08-12 22:23:27.016 +0000");
+
+    time_unix = unix(1691879007, 16918790000).utc();
+    try expectFmt(time_unix, "YYYY-MM-DD HH:mm:ss.SSS ZZ", "2023-08-12 22:23:43.918 +0000");
+
+    time_unix = unix(1691879007, 16918790112).utc();
+    try expectFmt(time_unix, "YYYY-MM-DD HH:mm:ss.SSS ZZ", "2023-08-12 22:23:43.918 +0000");
+
+    time_unix = unix(1691879007, 0).utc();
+    try expectFmt(time_unix, "YYYY-MM-DD HH:mm:ss.SSS ZZ", "2023-08-12 22:23:27.000 +0000");
 
     const time_3_6 = Time.fromUnix(1691879007, 16918790).utc();
     try expectFmt(time_3_6, "YYYY-MM-DD HH:mm:ss.SSS ZZ", "2023-08-12 22:23:27.016 +0000");
