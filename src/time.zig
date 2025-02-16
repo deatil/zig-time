@@ -1834,13 +1834,21 @@ const SeqResut = struct {
 };
 
 fn nextSeq(fmt: []const u8) SeqResut {
+    if (fmt.len > 3 and std.mem.eql(u8, fmt[0..3], "SSS")) {
+        return nextSeqN(fmt, 9);
+    } else {
+        return nextSeqN(fmt, 4);
+    }
+}
+
+fn nextSeqN(fmt: []const u8, n: usize) SeqResut {
     var next: ?FormatSeq = null;
     var maxLen: usize = 0;
 
-    if (fmt.len < 9) {
+    if (fmt.len < n) {
         maxLen = fmt.len;
     } else {
-        maxLen = 9;
+        maxLen = n;
     }
     
     var i: usize = 1;
