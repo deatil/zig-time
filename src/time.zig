@@ -1834,8 +1834,10 @@ const SeqResut = struct {
 };
 
 fn nextSeq(fmt: []const u8) SeqResut {
-    if (fmt.len > 3 and std.mem.eql(u8, fmt[0..3], "SSS")) {
+    if (fmt.len > 6 and std.mem.eql(u8, fmt[0..6], "SSSSSS")) {
         return nextSeqN(fmt, 9);
+    } else if (fmt.len > 3 and std.mem.eql(u8, fmt[0..3], "SSS")) {
+        return nextSeqN(fmt, 6);
     } else {
         return nextSeqN(fmt, 4);
     }
