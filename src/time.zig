@@ -60,11 +60,11 @@ pub const Location = struct {
 
     /// if name.len > 0 return name, or return offset string
     pub fn stringAlloc(self: Self, alloc: Allocator) ![]const u8 {
-        var list = std.ArrayList(u8).init(alloc);
-        defer list.deinit();
+        var list = try std.ArrayList(u8).initCapacity(alloc, 0);
+        defer list.deinit(alloc);
 
-        try self.string(list.writer());
-        return list.toOwnedSlice();
+        try self.string(list.writer(alloc));
+        return list.toOwnedSlice(alloc);
     }
 
     /// eg: +0800
@@ -75,11 +75,11 @@ pub const Location = struct {
 
     /// eg: +0800
     pub fn offsetStringAlloc(self: Self, alloc: Allocator) ![]const u8 {
-        var list = std.ArrayList(u8).init(alloc);
-        defer list.deinit();
+        var list = try std.ArrayList(u8).initCapacity(alloc, 0);
+        defer list.deinit(alloc);
 
-        try self.offsetString(list.writer());
-        return list.toOwnedSlice();
+        try self.offsetString(list.writer(alloc));
+        return list.toOwnedSlice(alloc);
     }
 
     /// eg: +08:00
@@ -90,11 +90,11 @@ pub const Location = struct {
 
     /// eg: +08:00
     pub fn offsetFormatStringAlloc(self: Self, alloc: Allocator) ![]const u8 {
-        var list = std.ArrayList(u8).init(alloc);
-        defer list.deinit();
+        var list = try std.ArrayList(u8).initCapacity(alloc, 0);
+        defer list.deinit(alloc);
 
-        try self.offsetFormatString(list.writer());
-        return list.toOwnedSlice();
+        try self.offsetFormatString(list.writer(alloc));
+        return list.toOwnedSlice(alloc);
     }
 
     fn fixedName(self: Self, offset: i32, is_format: bool, writer: anytype) !void {
@@ -1134,11 +1134,11 @@ pub const Time = struct {
     }
 
     pub fn formatAlloc(self: Self, alloc: Allocator, comptime fmt: string) !string {
-        var list = std.ArrayList(u8).init(alloc);
-        defer list.deinit();
+        var list = try std.ArrayList(u8).initCapacity(alloc, 0);
+        defer list.deinit(alloc);
 
-        try self.format(fmt, .{}, list.writer());
-        return list.toOwnedSlice();
+        try self.format(fmt, .{}, list.writer(alloc));
+        return list.toOwnedSlice(alloc);
     }
 };
 
@@ -1528,11 +1528,11 @@ pub const Duration = struct {
     }
 
     pub fn stringAlloc(self: Self, alloc: Allocator) ![]const u8 {
-        var list = std.ArrayList(u8).init(alloc);
-        defer list.deinit();
+        var list = try std.ArrayList(u8).initCapacity(alloc, 0);
+        defer list.deinit(alloc);
 
-        try self.string(list.writer());
-        return list.toOwnedSlice();
+        try self.string(list.writer(alloc));
+        return list.toOwnedSlice(alloc);
     }
 
     /// nanoseconds returns the duration as an integer nanosecond count.
@@ -2104,7 +2104,7 @@ test "now" {
     // std.debug.print("{d}", .{now().milliTimestamp()});
 
     const time_0 = now().milliTimestamp();
-    time.sleep(time.ns_per_ms);
+    std.Thread.sleep(time.ns_per_ms);
     const time_1 = now().milliTimestamp();
     const interval = time_1 - time_0;
 
@@ -2418,7 +2418,7 @@ test "Duration" {
     try testing.expectFmt("1h2m5s", "{s}", .{dur_str});
 
     const dur2_str = try dur2.stringAlloc(alloc);
-    defer alloc.free(dur2_str);    
+    defer alloc.free(dur2_str);
     try testing.expectFmt("-1h2m5s", "{s}", .{dur2_str});
     try testing.expectFmt("3725000000000", "{d}", .{dur.nanoseconds()});
     try testing.expectFmt("3725000000", "{d}", .{dur.microseconds()});
@@ -2511,12 +2511,12 @@ test "time sub" {
 
     const time_sub_1 = time_0.sub(time_1);
     const time_sub_1_str = try time_sub_1.stringAlloc(alloc);
-    defer alloc.free(time_sub_1_str);    
+    defer alloc.free(time_sub_1_str);
     try testing.expectFmt("-2m0s", "{s}", .{time_sub_1_str});
 
     const time_sub_2 = time_1.sub(time_0);
     const time_sub_2_str = try time_sub_2.stringAlloc(alloc);
-    defer alloc.free(time_sub_2_str);    
+    defer alloc.free(time_sub_2_str);
     try testing.expectFmt("2m0s", "{s}", .{time_sub_2_str});
 }
 

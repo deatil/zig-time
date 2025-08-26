@@ -1,9 +1,9 @@
 .{
     .name = .zig_time,
     .description = "A date and time parse and format library for Zig.",
-    .version = "1.1.0",
+    .version = "1.2.0",
     .fingerprint = 0xa7fe7ba60afe3f14,
-    .minimum_zig_version = "0.15.0-dev.337+4e700fdf8",
+    .minimum_zig_version = "0.15.1",
     .paths = .{
         "build.zig",
         "build.zig.zon",
