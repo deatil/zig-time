@@ -5,7 +5,7 @@ A date and time parse and format library for Zig.
 
 ### Env
 
- - Zig >= 0.15.1
+ - Zig >= 0.16.0
 
 
 ### Adding zig-time as a dependency
@@ -50,8 +50,10 @@ const zig_time = @import("zig-time");
 const std = @import("std");
 const time = @import("zig-time");
 
-pub fn main() !void {
-    const time_0 = time.now().timestamp();
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+
+    const time_0 = time.now(io).timestamp();
     std.debug.print("now time: {d} \n", .{time_0});
     
     // ==========

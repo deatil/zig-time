@@ -1,9 +1,11 @@
 const std = @import("std");
+const Io = std.Io;
 const mem = std.mem;
 const time = std.time;
 const epoch = time.epoch;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
+const Allocating = std.Io.Writer.Allocating;
 
 const string = []const u8;
 
@@ -50,7 +52,7 @@ pub const Location = struct {
     }
 
     /// if name.len > 0 return name, or return offset string
-    pub fn string(self: Self, writer: anytype) !void {
+    pub fn string(self: Self, writer: *Io.Writer) !void {
         if (self.name.len > 0) {
             try writer.writeAll(self.name);
         } else {
@@ -60,44 +62,50 @@ pub const Location = struct {
 
     /// if name.len > 0 return name, or return offset string
     pub fn stringAlloc(self: Self, alloc: Allocator) ![]const u8 {
-        var list = try std.ArrayList(u8).initCapacity(alloc, 0);
-        defer list.deinit(alloc);
+        const initial_buf = try alloc.alloc(u8, 8);
 
-        try self.string(list.writer(alloc));
-        return list.toOwnedSlice(alloc);
+        var aw: Allocating = .initOwnedSlice(alloc, initial_buf);
+        defer aw.deinit();
+
+        try self.string(&aw.writer);
+        return alloc.dupe(u8, aw.writer.buffered());
     }
 
     /// eg: +0800
-    pub fn offsetString(self: Self, writer: anytype) !void {
+    pub fn offsetString(self: Self, writer: *Io.Writer) !void {
         const o = self.offset;
         try self.fixedName(o, false, writer);
     }
 
     /// eg: +0800
     pub fn offsetStringAlloc(self: Self, alloc: Allocator) ![]const u8 {
-        var list = try std.ArrayList(u8).initCapacity(alloc, 0);
-        defer list.deinit(alloc);
+        const initial_buf = try alloc.alloc(u8, 8);
 
-        try self.offsetString(list.writer(alloc));
-        return list.toOwnedSlice(alloc);
+        var aw: Allocating = .initOwnedSlice(alloc, initial_buf);
+        defer aw.deinit();
+
+        try self.offsetString(&aw.writer);
+        return alloc.dupe(u8, aw.writer.buffered());
     }
 
     /// eg: +08:00
-    pub fn offsetFormatString(self: Self, writer: anytype) !void {
+    pub fn offsetFormatString(self: Self, writer: *Io.Writer) !void {
         const o = self.offset;
         try self.fixedName(o, true, writer);
     }
 
     /// eg: +08:00
     pub fn offsetFormatStringAlloc(self: Self, alloc: Allocator) ![]const u8 {
-        var list = try std.ArrayList(u8).initCapacity(alloc, 0);
-        defer list.deinit(alloc);
+        const initial_buf = try alloc.alloc(u8, 8);
 
-        try self.offsetFormatString(list.writer(alloc));
-        return list.toOwnedSlice(alloc);
+        var aw: Allocating = .initOwnedSlice(alloc, initial_buf);
+        defer aw.deinit();
+
+        try self.offsetFormatString(&aw.writer);
+        return alloc.dupe(u8, aw.writer.buffered());
     }
 
-    fn fixedName(self: Self, offset: i32, is_format: bool, writer: anytype) !void {
+    fn fixedName(self: Self, offset: i32, is_format: bool, writer: *Io.Writer) !void {
         _ = self;
 
         var new_offset: u64 = 0;
@@ -138,7 +146,8 @@ pub const Location = struct {
             buf[w] = '+';
         }
 
-        try writer.writeAll(buf[w..]);
+        var wr = writer;
+        try wr.writeAll(buf[w..]);
     }
 
     pub fn parseName(str: []const u8) !i32 {
@@ -280,9 +289,9 @@ pub const Time = struct {
         return init(ns, loc);
     }
 
-    pub fn now() Time {
-        const ts = time.nanoTimestamp();
-        return fromNanoTimestamp(ts);
+    pub fn now(io: Io) Time {
+        const ts = Io.Clock.real.now(io).nanoseconds;
+        return fromNanoTimestamp(@as(i128, ts));
     }
 
     // =====================
@@ -1019,7 +1028,7 @@ pub const Time = struct {
     }
 
     /// format datetime to output string
-    pub fn format(self: Self, comptime fmt: string, options: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(self: Self, comptime fmt: string, options: std.fmt.Options, w: *Io.Writer) !void {
         _ = options;
 
         if (fmt.len == 0) {
@@ -1027,6 +1036,8 @@ pub const Time = struct {
         }
 
         @setEvalBranchQuota(100000);
+
+        var writer = w;
 
         const tz = self.location();
 
@@ -1134,11 +1145,13 @@ pub const Time = struct {
     }
 
     pub fn formatAlloc(self: Self, alloc: Allocator, comptime fmt: string) !string {
-        var list = try std.ArrayList(u8).initCapacity(alloc, 0);
-        defer list.deinit(alloc);
+        const initial_buf = try alloc.alloc(u8, 8);
 
-        try self.format(fmt, .{}, list.writer(alloc));
-        return list.toOwnedSlice(alloc);
+        var aw: Allocating = .initOwnedSlice(alloc, initial_buf);
+        defer aw.deinit();
+
+        try self.format(fmt, .{}, &aw.writer);
+        return alloc.dupe(u8, aw.writer.buffered());
     }
 };
 
@@ -1245,9 +1258,16 @@ pub fn date(
     return Time.fromDatetime(year, month, day, hour, min, sec, nsec, loc);
 }
 
+pub fn timeNanoTimestamp() i128 {
+    var io_instance: Io.Threaded = undefined;
+    const io = io_instance.io();
+    const ts = Io.Clock.real.now(io).nanoseconds;
+    return @as(i128, ts);
+}
+
 // now time
-pub fn now() Time {
-    return Time.now();
+pub fn now(io: Io) Time {
+    return Time.now(io);
 }
 
 // use unix date to Time
@@ -1257,14 +1277,14 @@ pub fn unix(sec: i64, nsec: i64) Time {
 
 // Since returns the time elapsed since t.
 // It is shorthand for time.now().sub(t).
-pub fn since(t: Time) Duration {
-    return now().sub(t);
+pub fn since(io: Io, t: Time) Duration {
+    return now(io).sub(t);
 }
 
 // Until returns the duration until t.
 // It is shorthand for t.sub(time.now()).
-pub fn until(t: Time) Duration {
-    return t.sub(now());
+pub fn until(io: Io, t: Time) Duration {
+    return t.sub(now(io));
 }
 
 fn daysSinceeEpoch(year: isize) u64 {
@@ -1449,7 +1469,7 @@ pub const Duration = struct {
         };
     }
 
-    pub fn string(self: Self, writer: anytype) !void {
+    pub fn string(self: Self, writer: *Io.Writer) !void {
         var buf: [32]u8 = undefined;
         var w = buf.len;
         var u: u64 = undefined;
@@ -1528,11 +1548,13 @@ pub const Duration = struct {
     }
 
     pub fn stringAlloc(self: Self, alloc: Allocator) ![]const u8 {
-        var list = try std.ArrayList(u8).initCapacity(alloc, 0);
-        defer list.deinit(alloc);
+        const initial_buf = try alloc.alloc(u8, 8);
 
-        try self.string(list.writer(alloc));
-        return list.toOwnedSlice(alloc);
+        var aw: Allocating = .initOwnedSlice(alloc, initial_buf);
+        defer aw.deinit();
+
+        try self.string(&aw.writer);
+        return alloc.dupe(u8, aw.writer.buffered());
     }
 
     /// nanoseconds returns the duration as an integer nanosecond count.
@@ -1812,7 +1834,7 @@ fn absDate(abs: u64, full: bool) DateDetail {
     return details;
 }
 
-fn writeOrdinal(writer: anytype, num: u16) !void {
+fn writeOrdinal(writer: *Io.Writer, num: u16) !void {
     try writer.print("{}", .{num});
     try writer.writeAll(switch (num) {
         1 => "st",
@@ -2099,22 +2121,26 @@ fn parseNanoseconds(value: []const u8, nbytes: usize) !isize {
 }
 
 test "now" {
+    const io = testing.io;
     const margin = time.ns_per_ms * 50;
 
     // std.debug.print("{d}", .{now().milliTimestamp()});
 
-    const time_0 = now().milliTimestamp();
-    std.Thread.sleep(time.ns_per_ms);
-    const time_1 = now().milliTimestamp();
+    const time_0 = now(io).milliTimestamp();
+    try Io.sleep(io, .fromNanoseconds(time.ns_per_ms), .awake);
+    const time_1 = now(io).milliTimestamp();
     const interval = time_1 - time_0;
 
     try testing.expect(interval > 0);
 
-    const now_t = now();
+    const now_t = now(io);
     try testing.expect(now_t.timestamp() > 0);
     try testing.expect(now_t.milliTimestamp() > 0);
     try testing.expect(now_t.microTimestamp() > 0);
     try testing.expect(now_t.nanoTimestamp() > 0);
+
+    const now_io = timeNanoTimestamp();
+    try testing.expect(now_io > 0);
 
     // Tests should not depend on timings: skip test if outside margin.
     if (!(interval < margin)) return error.SkipZigTest;
@@ -2521,9 +2547,11 @@ test "time sub" {
 }
 
 test "time until and since" {
+    const io = testing.io;
+
     const time_1 = Time.fromDatetime(2023, 8, 13, 6, 25, 27, 12, Location.fixed(480));
 
-    const time_since = until(time_1);
+    const time_since = until(io, time_1);
     try testing.expect(time_since.nanoseconds() < 0);
 
     const week_day = @intFromEnum(time_1.weekday());
