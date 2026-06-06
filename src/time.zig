@@ -291,7 +291,7 @@ pub const Time = struct {
 
     pub fn now(io: Io) Time {
         const ts = Io.Clock.real.now(io).nanoseconds;
-        return fromNanoTimestamp(@as(i128, ts));
+        return fromNanoTimestamp(@as(i128, @intCast(ts)));
     }
 
     // =====================
@@ -1262,7 +1262,7 @@ pub fn timeNanoTimestamp() i128 {
     var io_instance: Io.Threaded = undefined;
     const io = io_instance.io();
     const ts = Io.Clock.real.now(io).nanoseconds;
-    return @as(i128, ts);
+    return @as(i128, @intCast(ts));
 }
 
 // now time
