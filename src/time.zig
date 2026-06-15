@@ -9,6 +9,8 @@ const Allocating = std.Io.Writer.Allocating;
 
 const string = []const u8;
 
+pub const timer = @import("timer.zig");
+
 const ctx = @This();
 
 // timezone struct
