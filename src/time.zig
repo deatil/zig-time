@@ -292,7 +292,7 @@ pub const Time = struct {
     }
 
     pub fn now(io: Io) Time {
-        const ts = Io.Clock.real.now(io).nanoseconds;
+        const ts = Io.Timestamp.now(io, .real).toNanoseconds();
         return fromNanoTimestamp(@as(i128, @intCast(ts)));
     }
 
@@ -1260,11 +1260,21 @@ pub fn date(
     return Time.fromDatetime(year, month, day, hour, min, sec, nsec, loc);
 }
 
-pub fn timeNanoTimestamp() i128 {
-    var io_instance: Io.Threaded = undefined;
-    const io = io_instance.io();
-    const ts = Io.Clock.real.now(io).nanoseconds;
-    return @as(i128, @intCast(ts));
+pub fn timeNanoseconds() i96 {
+    const ts = Io.Timestamp.now(std.Options.debug_io, .real).toNanoseconds();
+    return ts;
+}
+
+pub fn timeTimestamp() i64 {
+    return @intCast(@divTrunc(timeNanoseconds(), std.time.ns_per_s));
+}
+
+pub fn timeMilliseconds() i64 {
+    return @intCast(@divTrunc(timeNanoseconds(), std.time.ns_per_ms));
+}
+
+pub fn timeMicroseconds() i64 {
+    return @intCast(@divTrunc(timeNanoseconds(), std.time.ns_per_us));
 }
 
 // now time
@@ -2141,8 +2151,14 @@ test "now" {
     try testing.expect(now_t.microTimestamp() > 0);
     try testing.expect(now_t.nanoTimestamp() > 0);
 
-    const now_io = timeNanoTimestamp();
-    try testing.expect(now_io > 0);
+    const now_1 = timeNanoseconds();
+    const now_2 = timeTimestamp();
+    const now_3 = timeMilliseconds();
+    const now_4 = timeMicroseconds();
+    try testing.expect(now_1 > 0);
+    try testing.expect(now_2 > 0);
+    try testing.expect(now_3 > 0);
+    try testing.expect(now_4 > 0);
 
     // Tests should not depend on timings: skip test if outside margin.
     if (!(interval < margin)) return error.SkipZigTest;
