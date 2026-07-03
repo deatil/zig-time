@@ -15,7 +15,7 @@ pub const Instant = struct {
     timestamp: i96,
 
     pub fn now(io: Io) !Instant {
-        const ts = Io.Clock.real.now(io).nanoseconds;
+        const ts = Io.Timestamp.now(io, .real).toNanoseconds();
         return .{ .timestamp = ts };
     }
 
