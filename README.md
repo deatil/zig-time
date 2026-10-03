@@ -5,7 +5,7 @@ A date and time parse and format library for Zig.
 
 ### Env
 
- - Zig >= 0.16.0
+ - Zig >= 0.17.0
 
 
 ### Adding zig-time as a dependency
