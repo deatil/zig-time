@@ -756,15 +756,15 @@ pub const Time = struct {
 
     // =====================
 
-    pub fn parse(comptime layout: []const u8, value: []const u8) !Time {
+    pub fn parse(layout: []const u8, value: []const u8) !Time {
         const t = try parseInLocation(layout, value, Location.utc());
 
         return t;
     }
 
-    pub fn parseInLocation(comptime layout: []const u8, value: []const u8, loction: Location) !Time {
+    pub fn parseInLocation(layout: []const u8, value: []const u8, loction: Location) !Time {
         if (layout.len == 0) {
-            @compileError("DateTime: layout string can't be empty");
+            return error.LayoutStringEmpty;
         }
 
         @setEvalBranchQuota(100000);
@@ -1030,11 +1030,9 @@ pub const Time = struct {
     }
 
     /// format datetime to output string
-    pub fn format(self: Self, comptime fmt: string, options: std.fmt.Options, w: *Io.Writer) !void {
-        _ = options;
-
+    pub fn format(self: Self, fmt: string, w: *Io.Writer) !void {
         if (fmt.len == 0) {
-            @compileError("DateTime: format string can't be empty");
+            return error.FormatStringEmpty;
         }
 
         @setEvalBranchQuota(100000);
@@ -1146,13 +1144,13 @@ pub const Time = struct {
         }
     }
 
-    pub fn formatAlloc(self: Self, alloc: Allocator, comptime fmt: string) !string {
+    pub fn formatAlloc(self: Self, alloc: Allocator, fmt: string) !string {
         const initial_buf = try alloc.alloc(u8, 8);
 
         var aw: Allocating = .initOwnedSlice(alloc, initial_buf);
         defer aw.deinit();
 
-        try self.format(fmt, .{}, &aw.writer);
+        try self.format(fmt, &aw.writer);
         return alloc.dupe(u8, aw.writer.buffered());
     }
 };
