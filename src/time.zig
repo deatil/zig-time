@@ -9,153 +9,9 @@ const Allocating = std.Io.Writer.Allocating;
 
 const string = []const u8;
 
-pub const timer = @import("timer.zig");
-
 const ctx = @This();
 
-// timezone struct
-pub const Location = struct {
-    offset: i32,
-    name: []const u8,
-
-    const Self = @This();
-
-    pub fn init(offset: i32, name: []const u8) Location {
-        return .{
-            .offset = offset,
-            .name = name,
-        };
-    }
-
-    pub fn create(offset: i32, name: []const u8) Location {
-        const new_offset = offset * time.s_per_min;
-        return init(new_offset, name);
-    }
-
-    pub fn utc() Location {
-        return init(0, "UTC");
-    }
-
-    // offset is minute
-    pub fn fixed(offset: i32) Location {
-        const new_offset = offset * time.s_per_min;
-        return init(new_offset, "");
-    }
-
-    pub fn parse(str: []const u8) !Location {
-        return parseWithName(str, "");
-    }
-
-    pub fn parseWithName(str: []const u8, name: []const u8) !Location {
-        const offset = try parseName(str);
-        const new_offset = offset * time.s_per_min;
-
-        return init(new_offset, name);
-    }
-
-    pub fn format(self: Self, writer: *Io.Writer) Io.Writer.Error!void {
-        return self.string(writer) catch return error.WriteFailed;
-    }
-
-    /// if name.len > 0 return name, or return offset string
-    pub fn string(self: Self, writer: *Io.Writer) !void {
-        if (self.name.len > 0) {
-            try writer.writeAll(self.name);
-        } else {
-            try self.offsetString(writer);
-        }
-    }
-
-    /// if name.len > 0 return name, or return offset string
-    pub fn stringAlloc(self: Self, alloc: Allocator) ![]const u8 {
-        var aw: Allocating = .init(alloc);
-        defer aw.deinit();
-
-        try self.string(&aw.writer);
-        return alloc.dupe(u8, aw.writer.buffered());
-    }
-
-    /// eg: +0800
-    pub fn offsetString(self: Self, writer: *Io.Writer) !void {
-        const o = self.offset;
-        try self.fixedName(o, false, writer);
-    }
-
-    /// eg: +0800
-    pub fn offsetStringAlloc(self: Self, alloc: Allocator) ![]const u8 {
-        var aw: Allocating = .init(alloc);
-        defer aw.deinit();
-
-        try self.offsetString(&aw.writer);
-        return alloc.dupe(u8, aw.writer.buffered());
-    }
-
-    /// eg: +08:00
-    pub fn offsetFormatString(self: Self, writer: *Io.Writer) !void {
-        const o = self.offset;
-        try self.fixedName(o, true, writer);
-    }
-
-    /// eg: +08:00
-    pub fn offsetFormatStringAlloc(self: Self, alloc: Allocator) ![]const u8 {
-        var aw: Allocating = .init(alloc);
-        defer aw.deinit();
-
-        try self.offsetFormatString(&aw.writer);
-        return alloc.dupe(u8, aw.writer.buffered());
-    }
-
-    fn fixedName(self: Self, offset: i32, is_format: bool, writer: *Io.Writer) !void {
-        _ = self;
-
-        var new_offset: u64 = 0;
-        if (offset > 0) {
-            new_offset = @as(u64, @intCast(offset));
-        } else {
-            new_offset = @as(u64, @intCast(-offset));
-        }
-
-        const h = @divTrunc(@as(isize, @intCast(new_offset % time.s_per_day)), time.s_per_hour);
-        const m = @divTrunc(@as(isize, @intCast(new_offset % time.s_per_hour)), time.s_per_min);
-
-        var buf: [32]u8 = undefined;
-
-        var w = buf.len;
-
-        w = fmtInt(buf[0..w], @as(u64, @intCast(@abs(m))));
-        if (m < 10) {
-            w -= 1;
-            buf[w] = '0';
-        }
-
-        if (is_format) {
-            w -= 1;
-            buf[w] = ':';
-        }
-
-        w = fmtInt(buf[0..w], @as(u64, @intCast(@abs(h))));
-        if (h < 10) {
-            w -= 1;
-            buf[w] = '0';
-        }
-
-        w -= 1;
-        if (offset < 0) {
-            buf[w] = '-';
-        } else {
-            buf[w] = '+';
-        }
-
-        var wr = writer;
-        try wr.writeAll(buf[w..]);
-    }
-
-    pub fn parseName(str: []const u8) !i32 {
-        const num = try parseTimezone(str);
-
-        return @as(i32, @intCast(num.value));
-    }
-};
+pub const timer = @import("timer.zig");
 
 pub const Time = struct {
     value: i128,
@@ -1028,8 +884,8 @@ pub const Time = struct {
     }
 
     /// format datetime to output string
-    pub fn format(self: Self, writer: *Io.Writer) !void {
-        return self.writeToStream(writer, Format.date_time);
+    pub fn format(self: Self, writer: *Io.Writer) Io.Writer.Error!void {
+        return self.writeToStream(writer, Format.date_time) catch return error.WriteFailed;
     }
 
     pub fn writeToStream(self: Self, w: *Io.Writer, fmt_str: string) !void {
@@ -1162,6 +1018,150 @@ pub const Time = struct {
     pub fn formatAlloc(self: Self, alloc: Allocator, fmt_str: string) !string {
         const out = try alloc.print("{f}", .{ self.fmt(fmt_str) });
         return out;
+    }
+};
+
+// time timezone
+pub const Location = struct {
+    offset: i32,
+    name: []const u8,
+
+    const Self = @This();
+
+    pub fn init(offset: i32, name: []const u8) Location {
+        return .{
+            .offset = offset,
+            .name = name,
+        };
+    }
+
+    pub fn create(offset: i32, name: []const u8) Location {
+        const new_offset = offset * time.s_per_min;
+        return init(new_offset, name);
+    }
+
+    pub fn utc() Location {
+        return init(0, "UTC");
+    }
+
+    // offset is minute
+    pub fn fixed(offset: i32) Location {
+        const new_offset = offset * time.s_per_min;
+        return init(new_offset, "");
+    }
+
+    pub fn parse(str: []const u8) !Location {
+        return parseWithName(str, "");
+    }
+
+    pub fn parseWithName(str: []const u8, name: []const u8) !Location {
+        const offset = try parseName(str);
+        const new_offset = offset * time.s_per_min;
+
+        return init(new_offset, name);
+    }
+
+    pub fn format(self: Self, writer: *Io.Writer) Io.Writer.Error!void {
+        return self.string(writer) catch return error.WriteFailed;
+    }
+
+    /// if name.len > 0 return name, or return offset string
+    pub fn string(self: Self, writer: *Io.Writer) !void {
+        if (self.name.len > 0) {
+            try writer.writeAll(self.name);
+        } else {
+            try self.offsetString(writer);
+        }
+    }
+
+    /// if name.len > 0 return name, or return offset string
+    pub fn stringAlloc(self: Self, alloc: Allocator) ![]const u8 {
+        var aw: Allocating = .init(alloc);
+        defer aw.deinit();
+
+        try self.string(&aw.writer);
+        return alloc.dupe(u8, aw.writer.buffered());
+    }
+
+    /// eg: +0800
+    pub fn offsetString(self: Self, writer: *Io.Writer) !void {
+        const o = self.offset;
+        try self.fixedName(o, false, writer);
+    }
+
+    /// eg: +0800
+    pub fn offsetStringAlloc(self: Self, alloc: Allocator) ![]const u8 {
+        var aw: Allocating = .init(alloc);
+        defer aw.deinit();
+
+        try self.offsetString(&aw.writer);
+        return alloc.dupe(u8, aw.writer.buffered());
+    }
+
+    /// eg: +08:00
+    pub fn offsetFormatString(self: Self, writer: *Io.Writer) !void {
+        const o = self.offset;
+        try self.fixedName(o, true, writer);
+    }
+
+    /// eg: +08:00
+    pub fn offsetFormatStringAlloc(self: Self, alloc: Allocator) ![]const u8 {
+        var aw: Allocating = .init(alloc);
+        defer aw.deinit();
+
+        try self.offsetFormatString(&aw.writer);
+        return alloc.dupe(u8, aw.writer.buffered());
+    }
+
+    fn fixedName(self: Self, offset: i32, is_format: bool, writer: *Io.Writer) !void {
+        _ = self;
+
+        var new_offset: u64 = 0;
+        if (offset > 0) {
+            new_offset = @as(u64, @intCast(offset));
+        } else {
+            new_offset = @as(u64, @intCast(-offset));
+        }
+
+        const h = @divTrunc(@as(isize, @intCast(new_offset % time.s_per_day)), time.s_per_hour);
+        const m = @divTrunc(@as(isize, @intCast(new_offset % time.s_per_hour)), time.s_per_min);
+
+        var buf: [32]u8 = undefined;
+
+        var w = buf.len;
+
+        w = fmtInt(buf[0..w], @as(u64, @intCast(@abs(m))));
+        if (m < 10) {
+            w -= 1;
+            buf[w] = '0';
+        }
+
+        if (is_format) {
+            w -= 1;
+            buf[w] = ':';
+        }
+
+        w = fmtInt(buf[0..w], @as(u64, @intCast(@abs(h))));
+        if (h < 10) {
+            w -= 1;
+            buf[w] = '0';
+        }
+
+        w -= 1;
+        if (offset < 0) {
+            buf[w] = '-';
+        } else {
+            buf[w] = '+';
+        }
+
+        var wr = writer;
+        try wr.writeAll(buf[w..]);
+    }
+
+    pub fn parseName(str: []const u8) !i32 {
+        const num = try parseTimezone(str);
+
+        return @as(i32, @intCast(num.value));
     }
 };
 
@@ -2551,13 +2551,7 @@ test "add Years" {
         try testing.expectFmt("2013-03-01 08:09:22 AM UTC", "{f}", .{t.fmt("YYYY-MM-DD hh:mm:ss A z")});
     }
     {
-        var aw: Allocating = .init(alloc);
-        defer aw.deinit();
-
-        try t.format(&aw.writer);
-
-        const buf = aw.writer.buffered();
-        try testing.expectFmt("2013-03-01 08:09:22", "{s}", .{buf});
+        try testing.expectFmt("2013-03-01 08:09:22", "{f}", .{t});
     }
     {
         var aw: Allocating = .init(alloc);
@@ -3163,4 +3157,8 @@ test "compare all" {
     try testing.expect(t_2.betweenIncludedEnd(t_1, t_3));
     try testing.expect(t_3.betweenIncludedEnd(t_1, t_3));
     try testing.expect(!t_1.betweenIncludedEnd(t_1, t_3));
+}
+
+test {
+    _ = timer;
 }
