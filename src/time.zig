@@ -53,6 +53,10 @@ pub const Location = struct {
         return init(new_offset, name);
     }
 
+    pub fn format(self: Self, writer: *Io.Writer) Io.Writer.Error!void {
+        return self.string(writer) catch return error.WriteFailed;
+    }
+
     /// if name.len > 0 return name, or return offset string
     pub fn string(self: Self, writer: *Io.Writer) !void {
         if (self.name.len > 0) {
@@ -64,9 +68,7 @@ pub const Location = struct {
 
     /// if name.len > 0 return name, or return offset string
     pub fn stringAlloc(self: Self, alloc: Allocator) ![]const u8 {
-        const initial_buf = try alloc.alloc(u8, 8);
-
-        var aw: Allocating = .initOwnedSlice(alloc, initial_buf);
+        var aw: Allocating = .init(alloc);
         defer aw.deinit();
 
         try self.string(&aw.writer);
@@ -81,9 +83,7 @@ pub const Location = struct {
 
     /// eg: +0800
     pub fn offsetStringAlloc(self: Self, alloc: Allocator) ![]const u8 {
-        const initial_buf = try alloc.alloc(u8, 8);
-
-        var aw: Allocating = .initOwnedSlice(alloc, initial_buf);
+        var aw: Allocating = .init(alloc);
         defer aw.deinit();
 
         try self.offsetString(&aw.writer);
@@ -98,9 +98,7 @@ pub const Location = struct {
 
     /// eg: +08:00
     pub fn offsetFormatStringAlloc(self: Self, alloc: Allocator) ![]const u8 {
-        const initial_buf = try alloc.alloc(u8, 8);
-
-        var aw: Allocating = .initOwnedSlice(alloc, initial_buf);
+        var aw: Allocating = .init(alloc);
         defer aw.deinit();
 
         try self.offsetFormatString(&aw.writer);
@@ -1030,8 +1028,12 @@ pub const Time = struct {
     }
 
     /// format datetime to output string
-    pub fn format(self: Self, fmt: string, w: *Io.Writer) !void {
-        if (fmt.len == 0) {
+    pub fn format(self: Self, writer: *Io.Writer) !void {
+        return self.writeToStream(writer, Format.date_time);
+    }
+
+    pub fn writeToStream(self: Self, w: *Io.Writer, fmt_str: string) !void {
+        if (fmt_str.len == 0) {
             return error.FormatStringEmpty;
         }
 
@@ -1055,7 +1057,7 @@ pub const Time = struct {
         const ns = @as(u32, @intCast(self.nanosecond()));
 
         var next: ?FormatSeq = null;
-        var newFmt = fmt;
+        var newFmt = fmt_str;
         while (newFmt.len > 0) {
             const fmtSeq = nextSeq(newFmt);
 
@@ -1144,13 +1146,248 @@ pub const Time = struct {
         }
     }
 
-    pub fn formatAlloc(self: Self, alloc: Allocator, fmt: string) !string {
-        const initial_buf = try alloc.alloc(u8, 8);
+    pub const Formater = struct {
+        t: Time,
+        fmt_str: string = Format.date_time,
 
-        var aw: Allocating = .initOwnedSlice(alloc, initial_buf);
+        pub fn default(f: Formater, writer: *Io.Writer) Io.Writer.Error!void {
+            return f.t.writeToStream(writer, f.fmt_str) catch return error.WriteFailed;
+        }
+    };
+
+    pub fn fmt(self: Self, fmt_str: string) std.fmt.Alt(Formater, Formater.default) {
+        return .{ .data = .{ .t = self, .fmt_str = fmt_str } };
+    }
+
+    pub fn formatAlloc(self: Self, alloc: Allocator, fmt_str: string) !string {
+        const out = try alloc.print("{f}", .{ self.fmt(fmt_str) });
+        return out;
+    }
+};
+
+pub const Duration = struct {
+    value: i64,
+
+    const Self = @This();
+
+    pub const Nanosecond = init(1);
+    pub const Microsecond = init(1000 * Nanosecond.value);
+    pub const Millisecond = init(1000 * Microsecond.value);
+    pub const Second = init(1000 * Millisecond.value);
+    pub const Minute = init(60 * Second.value);
+    pub const Hour = init(60 * Minute.value);
+
+    pub const MinDuration = init(-1 << 63);
+    pub const MaxDuration = init((1 << 63) - 1);
+
+    // fmtFrac formats the fraction of v/10**prec (e.g., ".12345") into the
+    // tail of buf, omitting trailing zeros. It omits the decimal
+    // point too when the fraction is 0. It returns the index where the
+    // output bytes begin and the value v/10**prec.
+
+    pub fn init(v: i64) Duration {
+        return .{
+            .value = v,
+        };
+    }
+
+    /// nanoseconds returns the duration as an integer nanosecond count.
+    pub fn nanoseconds(self: Self) i64 {
+        return self.value;
+    }
+
+    /// microseconds returns the duration as an integer microsecond count.
+    pub fn microseconds(self: Self) i64 {
+        return @divTrunc(self.value, time.ns_per_us);
+    }
+
+    /// milliseconds returns the duration as an integer millisecond count.
+    pub fn milliseconds(self: Self) i64 {
+        return @divTrunc(self.value, time.ns_per_ms);
+    }
+
+    // These methods return float64 because the dominant
+    // use case is for printing a floating point number like 1.5s, and
+    // a truncation to integer would make them not useful in those cases.
+    // Splitting the integer and fraction ourselves guarantees that
+    // converting the returned float64 to an integer rounds the same
+    // way that a pure integer conversion would have, even in cases
+    // where, say, float64(d.Nanoseconds())/1e9 would have rounded
+    // differently.
+
+    /// Seconds returns the duration as a floating point number of seconds.
+    pub fn seconds(self: Self) f64 {
+        const sec = @divTrunc(self.value, Second.value);
+        const nsec = @mod(self.value, Second.value);
+        return @as(f64, @floatFromInt(sec)) + @as(f64, @floatFromInt(nsec)) / 1e9;
+    }
+
+    /// Minutes returns the duration as a floating point number of minutes.
+    pub fn minutes(self: Self) f64 {
+        const min = @divTrunc(self.value, Minute.value);
+        const nsec = @mod(self.value, Minute.value);
+        return @as(f64, @floatFromInt(min)) + @as(f64, @floatFromInt(nsec)) / (60 * 1e9);
+    }
+
+    /// Hours returns the duration as a floating point number of hours.
+    pub fn hours(self: Self) f64 {
+        const hour = @divTrunc(self.value, Hour.value);
+        const nsec = @mod(self.value, Hour.value);
+        return @as(f64, @floatFromInt(hour)) + @as(f64, @floatFromInt(nsec)) / (60 * 60 * 1e9);
+    }
+
+    /// Truncate returns the result of rounding d toward zero to a multiple of m.
+    /// If m <= 0, Truncate returns d unchanged.
+    pub fn truncate(self: Self, m: Self) Duration {
+        if (m.value <= 0) {
+            return self;
+        }
+
+        return init(self.value - @mod(self.value, m.value));
+    }
+
+    /// lessThanHalf reports whether x+x < y but avoids overflow,
+    /// assuming x and y are both positive (Duration is signed).
+    fn lessThanHalf(self: Self, m: Self) bool {
+        const x = @as(u64, @intCast(self.value));
+        return x + x < @as(u64, @intCast(m.value));
+    }
+
+    /// Round returns the result of rounding d to the nearest multiple of m.
+    /// The rounding behavior for halfway values is to round away from zero.
+    /// If the result exceeds the maximum (or minimum)
+    /// value that can be stored in a Duration,
+    /// Round returns the maximum (or minimum) duration.
+    /// If m <= 0, Round returns d unchanged.
+    pub fn round(self: Self, m: Self) Duration {
+        if (m.value <= 0) {
+            return self;
+        }
+
+        var r = init(@mod(self.value, m.value));
+        if (self.value < 0) {
+            r.value = -r.value;
+            if (r.lessThanHalf(m)) {
+                return init(self.value + r.value);
+            }
+
+            const d = self.value - m.value + r.value;
+            if (d < self.value) {
+                return init(d);
+            }
+
+            return MinDuration;
+        }
+
+        if (r.lessThanHalf(m)) {
+            return init(self.value - r.value);
+        }
+
+        const d = self.value + m.value - r.value;
+        if (d > self.value) {
+            return init(d);
+        }
+
+        return MaxDuration;
+    }
+
+    pub fn abs(self: Self) Duration {
+        if (self.value >= 0) {
+            return self;
+        } else if (self.value == MinDuration.value) {
+            return MaxDuration;
+        } else {
+            return Duration.init(-self.value);
+        }
+    }
+
+    pub fn format(self: Self, writer: *Io.Writer) Io.Writer.Error!void {
+        return self.writeToStream(writer) catch return error.WriteFailed;
+    }
+
+    pub fn writeToStream(self: Self, writer: *Io.Writer) !void {
+        var buf: [32]u8 = undefined;
+        var w = buf.len;
+        var u: u64 = undefined;
+
+        const neg = self.value < 0;
+        if (neg) {
+            u = @as(u64, @intCast(-self.value));
+        } else {
+            u = @as(u64, @intCast(self.value));
+        }
+
+        if (u < @as(u64, @intCast(Second.value))) {
+            // Special case: if duration is smaller than a second,
+            // use smaller units, like 1.2ms
+            var prec: usize = 0;
+
+            w -= 1;
+            buf[w] = 's';
+
+            w -= 1;
+            if (u == 0) {
+                const s = "0s";
+
+                try writer.writeAll(s[0..]);
+                return;
+            } else if (u < @as(u64, @intCast(Microsecond.value))) {
+                // print nanoseconds
+                prec = 0;
+                buf[w] = 'n';
+            } else if (u < @as(u64, @intCast(Millisecond.value))) {
+                // print microseconds
+                prec = 3;
+                // U+00B5 'µ' micro sign == 0xC2 0xB5
+                w -= 1;
+                @memcpy(buf[w..], "µ");
+            } else {
+                prec = 6;
+                buf[w] = 'm';
+            }
+
+            const r = fmtFrac(buf[0..w], u, prec);
+            w = r.nw;
+            u = r.nv;
+            w = fmtInt(buf[0..w], u);
+        } else {
+            w -= 1;
+            buf[w] = 's';
+            const r = fmtFrac(buf[0..w], u, 9);
+            w = r.nw;
+            u = r.nv;
+            w = fmtInt(buf[0..w], @mod(u, 60));
+            u /= 60;
+
+            // u is now integer minutes
+            if (u > 0) {
+                w -= 1;
+                buf[w] = 'm';
+                w = fmtInt(buf[0..w], @mod(u, 60));
+                u /= 60;
+                // u is now integer hours
+                // Stop at hours because days can be different lengths.
+                if (u > 0) {
+                    w -= 1;
+                    buf[w] = 'h';
+                    w = fmtInt(buf[0..w], u);
+                }
+            }
+        }
+
+        if (neg) {
+            w -= 1;
+            buf[w] = '-';
+        }
+
+        try writer.writeAll(buf[w..]);
+    }
+
+    pub fn stringAlloc(self: Self, alloc: Allocator) ![]const u8 {
+        var aw: Allocating = .init(alloc);
         defer aw.deinit();
 
-        try self.format(fmt, &aw.writer);
+        try self.writeToStream(&aw.writer);
         return alloc.dupe(u8, aw.writer.buffered());
     }
 };
@@ -1452,231 +1689,6 @@ fn fmtInt(buf: []u8, value: u64) usize {
 
     return w;
 }
-
-pub const Duration = struct {
-    value: i64,
-
-    const Self = @This();
-
-    pub const Nanosecond = init(1);
-    pub const Microsecond = init(1000 * Nanosecond.value);
-    pub const Millisecond = init(1000 * Microsecond.value);
-    pub const Second = init(1000 * Millisecond.value);
-    pub const Minute = init(60 * Second.value);
-    pub const Hour = init(60 * Minute.value);
-
-    pub const MinDuration = init(-1 << 63);
-    pub const MaxDuration = init((1 << 63) - 1);
-
-    // fmtFrac formats the fraction of v/10**prec (e.g., ".12345") into the
-    // tail of buf, omitting trailing zeros. It omits the decimal
-    // point too when the fraction is 0. It returns the index where the
-    // output bytes begin and the value v/10**prec.
-
-    pub fn init(v: i64) Duration {
-        return .{
-            .value = v,
-        };
-    }
-
-    pub fn string(self: Self, writer: *Io.Writer) !void {
-        var buf: [32]u8 = undefined;
-        var w = buf.len;
-        var u: u64 = undefined;
-
-        const neg = self.value < 0;
-        if (neg) {
-            u = @as(u64, @intCast(-self.value));
-        } else {
-            u = @as(u64, @intCast(self.value));
-        }
-
-        if (u < @as(u64, @intCast(Second.value))) {
-            // Special case: if duration is smaller than a second,
-            // use smaller units, like 1.2ms
-            var prec: usize = 0;
-
-            w -= 1;
-            buf[w] = 's';
-
-            w -= 1;
-            if (u == 0) {
-                const s = "0s";
-
-                try writer.writeAll(s[0..]);
-                return;
-            } else if (u < @as(u64, @intCast(Microsecond.value))) {
-                // print nanoseconds
-                prec = 0;
-                buf[w] = 'n';
-            } else if (u < @as(u64, @intCast(Millisecond.value))) {
-                // print microseconds
-                prec = 3;
-                // U+00B5 'µ' micro sign == 0xC2 0xB5
-                w -= 1;
-                @memcpy(buf[w..], "µ");
-            } else {
-                prec = 6;
-                buf[w] = 'm';
-            }
-
-            const r = fmtFrac(buf[0..w], u, prec);
-            w = r.nw;
-            u = r.nv;
-            w = fmtInt(buf[0..w], u);
-        } else {
-            w -= 1;
-            buf[w] = 's';
-            const r = fmtFrac(buf[0..w], u, 9);
-            w = r.nw;
-            u = r.nv;
-            w = fmtInt(buf[0..w], @mod(u, 60));
-            u /= 60;
-
-            // u is now integer minutes
-            if (u > 0) {
-                w -= 1;
-                buf[w] = 'm';
-                w = fmtInt(buf[0..w], @mod(u, 60));
-                u /= 60;
-                // u is now integer hours
-                // Stop at hours because days can be different lengths.
-                if (u > 0) {
-                    w -= 1;
-                    buf[w] = 'h';
-                    w = fmtInt(buf[0..w], u);
-                }
-            }
-        }
-
-        if (neg) {
-            w -= 1;
-            buf[w] = '-';
-        }
-
-        try writer.writeAll(buf[w..]);
-    }
-
-    pub fn stringAlloc(self: Self, alloc: Allocator) ![]const u8 {
-        const initial_buf = try alloc.alloc(u8, 8);
-
-        var aw: Allocating = .initOwnedSlice(alloc, initial_buf);
-        defer aw.deinit();
-
-        try self.string(&aw.writer);
-        return alloc.dupe(u8, aw.writer.buffered());
-    }
-
-    /// nanoseconds returns the duration as an integer nanosecond count.
-    pub fn nanoseconds(self: Self) i64 {
-        return self.value;
-    }
-
-    /// microseconds returns the duration as an integer microsecond count.
-    pub fn microseconds(self: Self) i64 {
-        return @divTrunc(self.value, time.ns_per_us);
-    }
-
-    /// milliseconds returns the duration as an integer millisecond count.
-    pub fn milliseconds(self: Self) i64 {
-        return @divTrunc(self.value, time.ns_per_ms);
-    }
-
-    // These methods return float64 because the dominant
-    // use case is for printing a floating point number like 1.5s, and
-    // a truncation to integer would make them not useful in those cases.
-    // Splitting the integer and fraction ourselves guarantees that
-    // converting the returned float64 to an integer rounds the same
-    // way that a pure integer conversion would have, even in cases
-    // where, say, float64(d.Nanoseconds())/1e9 would have rounded
-    // differently.
-
-    /// Seconds returns the duration as a floating point number of seconds.
-    pub fn seconds(self: Self) f64 {
-        const sec = @divTrunc(self.value, Second.value);
-        const nsec = @mod(self.value, Second.value);
-        return @as(f64, @floatFromInt(sec)) + @as(f64, @floatFromInt(nsec)) / 1e9;
-    }
-
-    /// Minutes returns the duration as a floating point number of minutes.
-    pub fn minutes(self: Self) f64 {
-        const min = @divTrunc(self.value, Minute.value);
-        const nsec = @mod(self.value, Minute.value);
-        return @as(f64, @floatFromInt(min)) + @as(f64, @floatFromInt(nsec)) / (60 * 1e9);
-    }
-
-    /// Hours returns the duration as a floating point number of hours.
-    pub fn hours(self: Self) f64 {
-        const hour = @divTrunc(self.value, Hour.value);
-        const nsec = @mod(self.value, Hour.value);
-        return @as(f64, @floatFromInt(hour)) + @as(f64, @floatFromInt(nsec)) / (60 * 60 * 1e9);
-    }
-
-    /// Truncate returns the result of rounding d toward zero to a multiple of m.
-    /// If m <= 0, Truncate returns d unchanged.
-    pub fn truncate(self: Self, m: Self) Duration {
-        if (m.value <= 0) {
-            return self;
-        }
-
-        return init(self.value - @mod(self.value, m.value));
-    }
-
-    /// lessThanHalf reports whether x+x < y but avoids overflow,
-    /// assuming x and y are both positive (Duration is signed).
-    fn lessThanHalf(self: Self, m: Self) bool {
-        const x = @as(u64, @intCast(self.value));
-        return x + x < @as(u64, @intCast(m.value));
-    }
-
-    /// Round returns the result of rounding d to the nearest multiple of m.
-    /// The rounding behavior for halfway values is to round away from zero.
-    /// If the result exceeds the maximum (or minimum)
-    /// value that can be stored in a Duration,
-    /// Round returns the maximum (or minimum) duration.
-    /// If m <= 0, Round returns d unchanged.
-    pub fn round(self: Self, m: Self) Duration {
-        if (m.value <= 0) {
-            return self;
-        }
-
-        var r = init(@mod(self.value, m.value));
-        if (self.value < 0) {
-            r.value = -r.value;
-            if (r.lessThanHalf(m)) {
-                return init(self.value + r.value);
-            }
-
-            const d = self.value - m.value + r.value;
-            if (d < self.value) {
-                return init(d);
-            }
-
-            return MinDuration;
-        }
-
-        if (r.lessThanHalf(m)) {
-            return init(self.value - r.value);
-        }
-
-        const d = self.value + m.value - r.value;
-        if (d > self.value) {
-            return init(d);
-        }
-
-        return MaxDuration;
-    }
-
-    pub fn abs(self: Self) Duration {
-        if (self.value >= 0) {
-            return self;
-        } else if (self.value == MinDuration.value) {
-            return MaxDuration;
-        } else {
-            return Duration.init(-self.value);
-        }
-    }
-};
 
 pub const Clock = struct {
     hour: isize,
@@ -2458,6 +2470,7 @@ test "Duration" {
     const dur_str = try dur.stringAlloc(alloc);
     defer alloc.free(dur_str);
     try testing.expectFmt("1h2m5s", "{s}", .{dur_str});
+    try testing.expectFmt("1h2m5s", "{f}", .{dur});
 
     const dur2_str = try dur2.stringAlloc(alloc);
     defer alloc.free(dur2_str);
@@ -2531,6 +2544,30 @@ test "add Years" {
     try expectFmt(t, "YYYY-MM-DD hh:mm:ss A z", "2012-02-29 08:09:22 AM UTC");
     t = t.addDate(1, 0, 0);
     try expectFmt(t, "YYYY-MM-DD hh:mm:ss A z", "2013-03-01 08:09:22 AM UTC");
+
+    const alloc = testing.allocator;
+
+    {
+        try testing.expectFmt("2013-03-01 08:09:22 AM UTC", "{f}", .{t.fmt("YYYY-MM-DD hh:mm:ss A z")});
+    }
+    {
+        var aw: Allocating = .init(alloc);
+        defer aw.deinit();
+
+        try t.format(&aw.writer);
+
+        const buf = aw.writer.buffered();
+        try testing.expectFmt("2013-03-01 08:09:22", "{s}", .{buf});
+    }
+    {
+        var aw: Allocating = .init(alloc);
+        defer aw.deinit();
+
+        try t.writeToStream(&aw.writer, "YYYY-MM-DD hh:mm:ss A z");
+
+        const buf = aw.writer.buffered();
+        try testing.expectFmt("2013-03-01 08:09:22 AM UTC", "{s}", .{buf});
+    }
 }
 
 test "compare" {
@@ -2584,14 +2621,17 @@ test "Location fixed name" {
     const loc_8_str = try loc_8.stringAlloc(alloc);
     defer alloc.free(loc_8_str);
     try testing.expectFmt("+0800", "{s}", .{loc_8_str});
+    try testing.expectFmt("+0800", "{f}", .{loc_8});
 
     const loc_fu8_str = try loc_fu8.stringAlloc(alloc);
     defer alloc.free(loc_fu8_str);
     try testing.expectFmt("-0800", "{s}", .{loc_fu8_str});
+    try testing.expectFmt("-0800", "{f}", .{loc_fu8});
 
     const loc_fu0_str = try loc_fu0.stringAlloc(alloc);
     defer alloc.free(loc_fu0_str);
     try testing.expectFmt("+0000", "{s}", .{loc_fu0_str});
+    try testing.expectFmt("+0000", "{f}", .{loc_fu0});
 
     const loc_22 = Location.fixed(22 * 60);
     const loc_fu22 = Location.fixed(-22 * 60);
